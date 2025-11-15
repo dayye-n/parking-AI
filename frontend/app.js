@@ -1,0 +1,329 @@
+const API_BASE_URL = window.API_BASE_URL || '';
+
+const fallbackLots = [
+    {
+        id: 1,
+        name: 'Downtown Oasis Garage',
+        city: 'Dubai',
+        distance: '450 m',
+        price: 8,
+        spaces: 27,
+        rating: 4.8,
+        type: 'Covered',
+        amenities: ['EV charging', '24/7 security', 'Valet ready'],
+        confidence: 92
+    },
+    {
+        id: 2,
+        name: 'Marina Boardwalk Deck',
+        city: 'Dubai',
+        distance: '1.1 km',
+        price: 5,
+        spaces: 53,
+        rating: 4.4,
+        type: 'Outdoor',
+        amenities: ['Shaded', 'Camera patrol'],
+        confidence: 84
+    },
+    {
+        id: 3,
+        name: 'Corniche Business Hub',
+        city: 'Abu Dhabi',
+        distance: '300 m',
+        price: 7,
+        spaces: 18,
+        rating: 4.6,
+        type: 'Premium',
+        amenities: ['EV charging', 'Indoor', 'License plate entry'],
+        confidence: 88
+    },
+    {
+        id: 4,
+        name: 'Al Majaz Waterfront',
+        city: 'Sharjah',
+        distance: '650 m',
+        price: 4,
+        spaces: 45,
+        rating: 4.1,
+        type: 'Outdoor',
+        amenities: ['Shuttle', 'Lighting'],
+        confidence: 79
+    },
+    {
+        id: 5,
+        name: 'Expo City Mobility Hub',
+        city: 'Dubai',
+        distance: '2.2 km',
+        price: 12,
+        spaces: 12,
+        rating: 4.9,
+        type: 'Premium',
+        amenities: ['VIP valet', 'CCTV', 'Air conditioned'],
+        confidence: 95
+    },
+    {
+        id: 6,
+        name: 'Yas Mall Podium',
+        city: 'Abu Dhabi',
+        distance: '900 m',
+        price: 9,
+        spaces: 34,
+        rating: 4.3,
+        type: 'Covered',
+        amenities: ['EV charging', 'Guided parking'],
+        confidence: 86
+    }
+];
+
+const insightsDeck = [
+    {
+        title: 'EV utilization up 32%',
+        detail: 'Expo City fast chargers nearing saturation. Suggest swapping two bays to slow charge demand.',
+        tone: 'warning'
+    },
+    {
+        title: 'Corniche traffic easing',
+        detail: 'Pedestrian wait times down to 3.2 min after directing overflow to Business District Hub.',
+        tone: 'success'
+    },
+    {
+        title: 'Night tariff opportunity',
+        detail: 'Sharjah waterfront demand remains high after midnight. Consider AED +2/hr for premium rows.',
+        tone: 'info'
+    },
+    {
+        title: 'Sensor drift detected',
+        detail: 'Bay 14 camera feed shows latency spike above threshold. Schedule recalibration.',
+        tone: 'danger'
+    },
+    {
+        title: 'Tourist buses inbound',
+        detail: 'Six coaches ETA 40 min require parallel bays near Dubai Creek entrance.',
+        tone: 'info'
+    }
+];
+
+const timelineEvents = [
+    { time: '09:10', title: 'Museum drop-offs', detail: 'Two pods rerouted to shaded lots to avoid 96% occupancy.', tone: 'info' },
+    { time: '09:40', title: 'EV supercharge session', detail: 'Allocating 6 bays to fleet partners.', tone: 'success' },
+    { time: '10:05', title: 'Concert load-in', detail: 'Expect surge of 1.7k vehicles. Deploy ambassadors at Gate 3.', tone: 'warning' },
+    { time: '10:50', title: 'Policy sync', detail: 'Publishing hourly tariff update to CMS.', tone: 'info' }
+];
+
+const healthStatuses = [
+    { label: 'Telemetry ingestion', value: 'Nominal ? 24.4k msgs/min', tone: 'success' },
+    { label: 'Pricing engine', value: 'All shards synced', tone: 'success' },
+    { label: 'Camera vision', value: '1 alert ? recalibrate Bay 14', tone: 'warning' },
+    { label: 'Incident inbox', value: '0 escalations', tone: 'success' }
+];
+
+const dispatchQueue = [
+    'Redirected driver Salman to Marina Deck L5, 32 slots free.',
+    'Valet crew requested EV cable swap at Downtown Oasis.',
+    'Tour bus permit confirmed for Gate C.',
+    'Lighting automation triggered for Sharjah waterfront row B.',
+    'Analytics flagged heat surge near Business Bay promenade.'
+];
+
+const resultsEl = document.getElementById('results');
+const statAvailability = document.getElementById('statAvailability');
+const statRate = document.getElementById('statRate');
+const statConfidence = document.getElementById('statConfidence');
+const form = document.getElementById('searchForm');
+const insightsList = document.getElementById('insightsList');
+const timelineEl = document.getElementById('timeline');
+const systemHealthList = document.querySelector('#systemHealth .status-list');
+const dispatchFeed = document.getElementById('dispatchFeed');
+const mapOverlayLabel = document.getElementById('mapOverlayLabel');
+const mapOverlayHeadline = document.getElementById('mapOverlayHeadline');
+const mapOverlaySubline = document.getElementById('mapOverlaySubline');
+const heroFeedList = document.querySelector('#liveFeed ul');
+
+const formatCurrency = value => `${value.toFixed(0)} AED`;
+const getStars = rating => '?'.repeat(Math.round(rating));
+
+const setLoading = isLoading => {
+    if (!isLoading) return;
+    resultsEl.innerHTML = `
+        <div class="skeleton-card"></div>
+        <div class="skeleton-card"></div>
+        <div class="skeleton-card"></div>
+    `;
+};
+
+const renderResults = lots => {
+    if (!lots.length) {
+        resultsEl.innerHTML = `
+            <div class="empty-state">
+                No curated matches yet. Try another city or time window.
+            </div>
+        `;
+        return;
+    }
+
+    resultsEl.innerHTML = lots.map(lot => `
+        <article class="lot-card">
+            <div class="lot-card__header">
+                <div>
+                    <h4>${lot.name}</h4>
+                    <p class="secondary">${lot.distance} ? ${lot.type}</p>
+                </div>
+                <span class="badge">${lot.spaces} open</span>
+            </div>
+            <div class="lot-card__meta">
+                <span>${getStars(lot.rating)} ${lot.rating.toFixed(1)}</span>
+                <span>${lot.confidence}% confidence</span>
+            </div>
+            <div class="amenities">
+                ${lot.amenities.map(item => `<span>${item}</span>`).join('')}
+            </div>
+            <div class="lot-card__footer">
+                <div class="price">
+                    ${formatCurrency(lot.price)}
+                    <small>/hr</small>
+                </div>
+                <button class="primary">Reserve spot</button>
+            </div>
+        </article>
+    `).join('');
+};
+
+const updateStats = lots => {
+    const totalSpaces = lots.reduce((sum, lot) => sum + lot.spaces, 0);
+    const avgPrice = lots.length ? lots.reduce((sum, lot) => sum + lot.price, 0) / lots.length : 0;
+    const avgConfidence = lots.length ? lots.reduce((sum, lot) => sum + lot.confidence, 0) / lots.length : 0;
+
+    statAvailability.textContent = totalSpaces;
+    statRate.textContent = `${avgPrice.toFixed(1)} AED`;
+    statConfidence.textContent = `${avgConfidence.toFixed(0)}%`;
+};
+
+const populateInsights = () => {
+    const sample = [...insightsDeck].sort(() => Math.random() - 0.5).slice(0, 4);
+    insightsList.innerHTML = sample.map(item => `
+        <li class="insight ${item.tone}">
+            <strong>${item.title}</strong>
+            <span>${item.detail}</span>
+        </li>
+    `).join('');
+};
+
+const populateTimeline = () => {
+    timelineEl.innerHTML = timelineEvents.map(event => `
+        <li class="${event.tone}">
+            <strong>${event.time}</strong>
+            <p>${event.title}</p>
+            <span>${event.detail}</span>
+        </li>
+    `).join('');
+};
+
+const renderSystemHealth = () => {
+    systemHealthList.innerHTML = healthStatuses.map(item => `
+        <li class="${item.tone}">
+            <strong>${item.label}</strong>
+            <span>${item.value}</span>
+        </li>
+    `).join('');
+};
+
+const seedDispatchFeed = () => {
+    dispatchFeed.innerHTML = dispatchQueue.map(entry => `<li>${entry}</li>`).join('');
+};
+
+const rotateDispatchFeed = () => {
+    const message = dispatchQueue.shift();
+    dispatchQueue.push(message);
+    dispatchFeed.innerHTML = dispatchQueue.map(entry => `<li>${entry}</li>`).join('');
+};
+
+const updateMapNarrative = (city, lots) => {
+    mapOverlayLabel.textContent = `${city} telemetry`;
+    if (!lots.length) {
+        mapOverlayHeadline.textContent = 'Awaiting availability update';
+        mapOverlaySubline.textContent = 'Run a search to refresh the heatmap signal.';
+        return;
+    }
+    const avgConfidence = lots.reduce((sum, lot) => sum + lot.confidence, 0) / lots.length;
+    const topLot = lots[0];
+    mapOverlayHeadline.textContent = `${topLot.name} trending ${avgConfidence.toFixed(0)}% confidence`;
+    mapOverlaySubline.textContent = `${topLot.spaces} open bays ? ${formatCurrency(lot.price)} / hr average.`;
+};
+
+const updateHeroFeed = messages => {
+    heroFeedList.innerHTML = messages.map(line => `<li>${line}</li>`).join('');
+};
+
+const fetchFromApi = async payload => {
+    if (!API_BASE_URL) {
+        return null;
+    }
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 3500);
+    try {
+        const response = await fetch(`${API_BASE_URL}/suggest`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload),
+            signal: controller.signal
+        });
+        clearTimeout(timeout);
+        if (!response.ok) {
+            throw new Error('Network response not ok');
+        }
+        const data = await response.json();
+        return data.map((item, index) => ({
+            id: index + 1,
+            name: item.name,
+            city: item.city,
+            distance: `${(Math.random() * 1.5 + 0.2).toFixed(1)} km`,
+            price: item.price_per_hour,
+            spaces: Math.floor(Math.random() * 40) + 5,
+            rating: 4 + Math.random(),
+            type: item.covered ? 'Covered' : 'Outdoor',
+            amenities: item.covered ? ['Covered', 'Security patrol'] : ['Outdoor', 'Lighting'],
+            confidence: Math.max(60, Math.min(99, 100 - item.score * 5))
+        }));
+    } catch (error) {
+        console.warn('Falling back to mock data', error);
+        clearTimeout(timeout);
+        return null;
+    }
+};
+
+const filterFallbackLots = city => fallbackLots.filter(lot => lot.city === city);
+
+const findParking = event => {
+    event?.preventDefault();
+    const city = document.getElementById('city').value;
+    const preferCovered = document.getElementById('preferCovered').checked;
+
+    setLoading(true);
+
+    const payload = { city, results: 6, prefer_covered: preferCovered };
+    fetchFromApi(payload).then(apiResults => {
+        const matches = apiResults && apiResults.length ? apiResults : filterFallbackLots(city);
+        renderResults(matches);
+        updateStats(matches);
+        updateMapNarrative(city, matches);
+    });
+};
+
+form.addEventListener('submit', findParking);
+window.addEventListener('DOMContentLoaded', () => {
+    document.getElementById('arrival').value = new Date().toISOString().slice(0, 16);
+
+    populateInsights();
+    populateTimeline();
+    renderSystemHealth();
+    seedDispatchFeed();
+    updateHeroFeed([
+        'Connecting to curb sensors?',
+        'Syncing EV bay occupancy?',
+        'Calibrating demand heatmap?'
+    ]);
+
+    findParking();
+    setInterval(rotateDispatchFeed, 6000);
+});
+

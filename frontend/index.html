@@ -1,25 +1,251 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
-    <title>Parking Finder</title>
-    <link rel="stylesheet" href="style.css">
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>ParkPilot | Intelligent Parking Orchestrator</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Inter:wght@400;500&display=swap" rel="stylesheet" />
+    <link rel="stylesheet" href="style.css" />
 </head>
 <body>
+<div class="bg-sheen"></div>
+<div class="bg-sheen second"></div>
+<div class="page">
+    <header class="site-header">
+        <div class="logo">ParkPilot</div>
+        <nav>
+            <a href="#hero">Product</a>
+            <a href="#commandCenter">Command Center</a>
+            <a href="#resultsSection">Live lots</a>
+            <a href="#cta">Docs</a>
+        </nav>
+        <div class="header-actions">
+            <button class="ghost">View API</button>
+            <button class="primary">Launch Console</button>
+        </div>
+    </header>
 
-<h1>Find Parking</h1>
+    <section class="hero" id="hero">
+        <div class="hero__copy">
+            <p class="eyebrow">Parking AI Cloud</p>
+            <h1>City-scale parking ops, orchestrated in one pane.</h1>
+            <p class="subtitle">
+                Fuse live sensors, forecasts, and pricing rules to direct drivers to the perfect spot in seconds.
+                ParkPilot keeps occupancy balanced, revenue optimized, and EV chargers always primed.
+            </p>
+            <div class="actions">
+                <button class="primary large">Start routing cars</button>
+                <button class="secondary-btn">Watch 90s demo ?</button>
+            </div>
+            <ul class="hero__stats">
+                <li>
+                    <p>Realtime open spaces</p>
+                    <h3 id="statAvailability">0</h3>
+                    <span>across monitored garages</span>
+                </li>
+                <li>
+                    <p>Avg. hourly rate</p>
+                    <h3 id="statRate">0 AED</h3>
+                    <span>dynamically priced</span>
+                </li>
+                <li>
+                    <p>Confidence index</p>
+                    <h3 id="statConfidence">0%</h3>
+                    <span>prediction certainty</span>
+                </li>
+            </ul>
+        </div>
+        <div class="hero__panel">
+            <div class="radar">
+                <p>Network health</p>
+                <h2>99.2%</h2>
+                <span>uptime across sensors</span>
+                <div class="ring"></div>
+                <div class="ring second"></div>
+            </div>
+            <div class="feed" id="liveFeed">
+                <h4>Live dispatch</h4>
+                <ul>
+                    <li>Connecting to curb sensors…</li>
+                    <li>Syncing EV bay occupancy…</li>
+                    <li>Calibrating demand heatmap…</li>
+                </ul>
+            </div>
+        </div>
+    </section>
 
-<div class="box">
-    <label>City:</label>
-    <select id="city">
-        <option value="Dubai">Dubai</option>
-        <option value="Abu Dhabi">Abu Dhabi</option>
-    </select>
+    <main>
+        <section class="panel-grid" id="commandCenter">
+            <div class="panel search-card">
+                <div class="panel-header">
+                    <div>
+                        <p class="eyebrow">AI routing</p>
+                        <h2>Command center</h2>
+                    </div>
+                    <span class="tag">Live</span>
+                </div>
+                <form id="searchForm" class="search-form">
+                    <label>
+                        City
+                        <select id="city" required>
+                            <option value="Dubai">Dubai</option>
+                            <option value="Abu Dhabi">Abu Dhabi</option>
+                            <option value="Sharjah">Sharjah</option>
+                        </select>
+                    </label>
+                    <label>
+                        Arrival window
+                        <input type="datetime-local" id="arrival" required />
+                    </label>
+                    <label>
+                        Duration
+                        <select id="duration">
+                            <option value="1">1 hr</option>
+                            <option value="2">2 hrs</option>
+                            <option value="4">4 hrs</option>
+                            <option value="8">Full day</option>
+                        </select>
+                    </label>
+                    <label>
+                        Vehicle
+                        <select id="vehicle">
+                            <option value="standard">Standard</option>
+                            <option value="suv">SUV / Large</option>
+                            <option value="ev">EV (charging)</option>
+                        </select>
+                    </label>
+                    <label class="switch">
+                        <input type="checkbox" id="preferCovered" checked />
+                        <span>Prefer covered parking</span>
+                    </label>
+                    <button type="submit" class="primary">Search availability</button>
+                </form>
+                <div class="micro-info">
+                    <p>?? Last telemetry sync <strong>12 sec ago</strong></p>
+                    <p>? Demand surge detected around <strong>Expo City</strong></p>
+                </div>
+            </div>
+            <div class="panel map-panel">
+                <div class="map-header">
+                    <h3>City heatmap</h3>
+                    <button class="ghost" type="button">Re-center</button>
+                </div>
+                <div class="map" id="mapPreview">
+                    <div class="pulse-marker" style="top:35%;left:55%"></div>
+                    <div class="pulse-marker alt" style="top:60%;left:30%"></div>
+                    <div class="map-overlay" id="mapOverlay">
+                        <p id="mapOverlayLabel">Occupancy trend</p>
+                        <h4 id="mapOverlayHeadline">Down 8% in last 15 minutes</h4>
+                        <span id="mapOverlaySubline">Optimized routing reduced congestion near Dubai Mall</span>
+                    </div>
+                </div>
+                <div class="map-metrics">
+                    <div>
+                        <p>EV chargers</p>
+                        <strong>134 active</strong>
+                    </div>
+                    <div>
+                        <p>Sensor uptime</p>
+                        <strong>99.2%</strong>
+                    </div>
+                    <div>
+                        <p>Tow risk</p>
+                        <strong>Low</strong>
+                    </div>
+                </div>
+            </div>
+        </section>
 
-    <button onclick="findParking()">Search</button>
+        <section class="panel-grid analytics">
+            <div class="panel insights-panel">
+                <div class="panel-header">
+                    <div>
+                        <p class="eyebrow">AI insights</p>
+                        <h3>Operational intelligence</h3>
+                    </div>
+                    <button class="ghost" id="refreshInsights">Refresh</button>
+                </div>
+                <ul id="insightsList" class="insights-list"></ul>
+            </div>
+            <div class="panel timeline-panel">
+                <div class="panel-header">
+                    <div>
+                        <p class="eyebrow">Incoming events</p>
+                        <h3>Ops timeline</h3>
+                    </div>
+                    <span class="tag muted">Auto-sorted</span>
+                </div>
+                <ul class="timeline" id="timeline"></ul>
+            </div>
+        </section>
+
+        <section class="panel results-panel" id="resultsSection">
+            <div class="panel-header">
+                <div>
+                    <p class="eyebrow">Curated supply</p>
+                    <h2>Matched parking zones</h2>
+                </div>
+                <div class="filter-chips">
+                    <button class="ghost" type="button">Sort by proximity</button>
+                    <button class="ghost" type="button">Sort by rating</button>
+                    <button class="ghost" type="button">With EV</button>
+                </div>
+            </div>
+            <div id="results" class="results__list">
+                <div class="empty-state">
+                    Run a query to see AI-ranked lots.
+                </div>
+            </div>
+        </section>
+
+        <section class="panel-grid live-health">
+            <div class="panel health-card" id="systemHealth">
+                <div class="panel-header">
+                    <div>
+                        <p class="eyebrow">Platform health</p>
+                        <h3>Status board</h3>
+                    </div>
+                    <span class="tag">Green</span>
+                </div>
+                <ul class="status-list"></ul>
+            </div>
+            <div class="panel feed-card">
+                <div class="panel-header">
+                    <div>
+                        <p class="eyebrow">Fleet chatter</p>
+                        <h3>Dispatch feed</h3>
+                    </div>
+                    <button class="ghost" id="clearFeed">Clear</button>
+                </div>
+                <ul class="feed-list" id="dispatchFeed"></ul>
+            </div>
+        </section>
+
+        <section class="panel cta" id="cta">
+            <p class="eyebrow">Deploy in days</p>
+            <h2>Plug ParkPilot into your city stack.</h2>
+            <p class="subtitle">SDKs, webhooks, and GIS connectors help ops teams go live fast.</p>
+            <div class="actions">
+                <button class="primary large">Book architecture review</button>
+                <button class="secondary-btn">Download whitepaper</button>
+            </div>
+        </section>
+    </main>
+
+    <footer class="site-footer">
+        <p>© ParkPilot AI • Built for hackathons & real cities alike.</p>
+        <div class="footer-links">
+            <a href="#hero">Overview</a>
+            <a href="#commandCenter">Integrations</a>
+            <a href="#resultsSection">Use cases</a>
+        </div>
+    </footer>
 </div>
-
-<div id="results"></div>
-
+<script>
+    window.API_BASE_URL = 'http://localhost:8000';
+</script>
 <script src="app.js"></script>
 </body>
 </html>
