@@ -1,10 +1,12 @@
 ﻿import os
-from datetime import datetime, timedelta
+from datetime import datetime
 from typing import List, Optional
 
 from dotenv import load_dotenv
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
+
 from qdrant_client import QdrantClient
 from qdrant_client.models import (
     Distance,
@@ -16,37 +18,26 @@ from qdrant_client.models import (
     PayloadSchemaType,
 )
 
+# ---------------------------------------------------------
+# ENV + QDRANT CONFIG
+# ---------------------------------------------------------
+
 load_dotenv()
 
 QDRANT_URL = os.getenv("QDRANT_URL", "http://localhost:6333")
 QDRANT_API_KEY = os.getenv("QDRANT_API_KEY")
 
-VECTOR_SIZE = 5
 COLLECTION_NAME = "parking_zones"
+VECTOR_SIZE = 5
 
 client = QdrantClient(url=QDRANT_URL, api_key=QDRANT_API_KEY or None)
 
 SEED_ZONES: List["ParkingZone"] = []
 
 
-def init_collection() -> None:
-    client.recreate_collection(
-        collection_name=COLLECTION_NAME,
-        vectors_config=VectorParams(size=VECTOR_SIZE, distance=Distance.EUCLID),
-    )
-
-    client.create_payload_index(
-        collection_name=COLLECTION_NAME,
-        field_name="city",
-        field_schema=PayloadSchemaType.KEYWORD,
-    )
-
-    client.create_payload_index(
-        collection_name=COLLECTION_NAME,
-        field_name="ev_support",
-        field_schema=PayloadSchemaType.BOOL,
-    )
-
+# ---------------------------------------------------------
+# MODELS
+# ---------------------------------------------------------
 
 class ParkingZone(BaseModel):
     id: int
@@ -54,7 +45,7 @@ class ParkingZone(BaseModel):
     city: str
     lat: float
     lng: float
-    congestion_now: float
+    congestion_now: float          # 0–1 (1 = very congested)
     price_per_hour: float
     walking_time_minutes: float
     covered: bool
@@ -65,19 +56,18 @@ class ParkingZone(BaseModel):
 
 class SuggestRequest(BaseModel):
     city: str
-    results: int = 5
+    results: int = 6
     prefer_covered: bool = True
-    vehicle_type: str = "standard"
+    vehicle_type: str = "standard"      # "standard" | "ev"
     duration_hours: int = 1
-    arrival_iso: Optional[str] = None
 
 
 class SuggestResult(BaseModel):
     name: str
     city: str
+    price_per_hour: float
     lat: float
     lng: float
-    price_per_hour: float
     walking_time_minutes: float
     covered: bool
     ev_support: bool
@@ -107,185 +97,74 @@ class DispatchEvent(BaseModel):
     message: str
 
 
-def normalize(value: float, min_v: float, max_v: float) -> float:
+# ---------------------------------------------------------
+# VECTORS + FILTERS
+# ---------------------------------------------------------
+
+def normalize(v: float, min_v: float, max_v: float) -> float:
     if max_v == min_v:
         return 0.0
-    return (value - min_v) / (max_v - min_v)
+    return (v - min_v) / (max_v - min_v)
 
 
-def build_parking_vector(zone: ParkingZone) -> List[float]:
-    congestion_norm = zone.congestion_now
-    price_norm = normalize(zone.price_per_hour, 0, 50)
-    walking_norm = normalize(zone.walking_time_minutes, 0, 20)
-    covered_flag = 0.0 if zone.covered else 1.0
-    ev_flag = 0.0 if zone.ev_support else 1.0
-    return [congestion_norm, price_norm, walking_norm, covered_flag, ev_flag]
+def build_vector(zone: ParkingZone) -> List[float]:
+    """Turn one zone into a 5-dim vector for Qdrant."""
+    return [
+        zone.congestion_now,                          # want this low
+        normalize(zone.price_per_hour, 0, 50),        # want this low
+        normalize(zone.walking_time_minutes, 0, 20),  # want this low
+        0.0 if zone.covered else 1.0,                 # 0 = covered (good)
+        0.0 if zone.ev_support else 1.0,              # 0 = has EV support
+    ]
 
 
-def ideal_query_vector(req: SuggestRequest) -> List[float]:
-    covered_pref = 0.0 if req.prefer_covered else 0.5
-    ev_pref = 0.0 if req.vehicle_type.lower() == "ev" else 0.7
-    return [0.0, 0.0, 0.0, covered_pref, ev_pref]
+def query_vector(req: SuggestRequest) -> List[float]:
+    vt = req.vehicle_type.lower()
+    return [
+        0.0,                               # prefer low congestion
+        0.0,                               # prefer cheap
+        0.0,                               # prefer short walk
+        0.0 if req.prefer_covered else 0.5,
+        0.0 if vt == "ev" else 0.7,
+    ]
 
 
-def vehicle_filter_conditions(req: SuggestRequest) -> List[FieldCondition]:
-    conditions: List[FieldCondition] = [FieldCondition(key="city", match=MatchValue(value=req.city))]
-    if req.vehicle_type.lower() == "ev":
+def build_filter(req: SuggestRequest) -> Filter:
+    vt = req.vehicle_type.lower()
+    conditions = [FieldCondition(key="city", match=MatchValue(value=req.city))]
+    if vt == "ev":
         conditions.append(FieldCondition(key="ev_support", match=MatchValue(value=True)))
-    return conditions
+    return Filter(must=conditions)
 
 
-def city_snapshot(city: str) -> List[ParkingZone]:
-    if not SEED_ZONES:
-        return []
-    matches = [zone for zone in SEED_ZONES if zone.city == city]
-    return matches or SEED_ZONES
+# ---------------------------------------------------------
+# COLLECTION + SEEDING
+# ---------------------------------------------------------
 
-
-def generate_insights(city: str) -> List[Insight]:
-    zones = city_snapshot(city)
-    if not zones:
-        return [
-            Insight(
-                title="No seed data loaded",
-                detail="Initialize the Qdrant collection to unlock insights.",
-                severity="warning",
-            )
-        ]
-
-    avg_price = sum(z.price_per_hour for z in zones) / len(zones)
-    covered_ratio = sum(1 for z in zones if z.covered) / len(zones)
-    ev_ratio = sum(1 for z in zones if z.ev_support) / len(zones)
-    best_zone = min(zones, key=lambda z: z.congestion_now)
-
-    return [
-        Insight(
-            title=f"{city} EV utilization",
-            detail=f"{ev_ratio:.0%} bays EV-ready across network.",
-            severity="info",
-        ),
-        Insight(
-            title="Tariff opportunity",
-            detail=f"Average {avg_price:.1f} AED/hr, room for premium after dusk.",
-            severity="success",
-        ),
-        Insight(
-            title="Sheltered capacity",
-            detail=f"{covered_ratio:.0%} of inventory covered, unlock long-stay upsell.",
-            severity="info",
-        ),
-        Insight(
-            title=f"{best_zone.name} trending",
-            detail=f"Walking time {best_zone.walking_time_minutes} min, congestion {best_zone.congestion_now:.0%}.",
-            severity="success",
-        ),
-    ]
-
-
-def generate_timeline(city: str) -> List[TimelineEvent]:
-    now = datetime.utcnow().replace(second=0, microsecond=0)
-    increments = [0, 20, 45]
-    labels = [
-        ("Sensor sync", f"Refreshing curb cameras near {city} core."),
-        ("EV hold window", "Allocating chargers to fleets."),
-        ("Event surge prep", f"Deploying ambassadors in {city} downtown."),
-    ]
-    events: List[TimelineEvent] = []
-    for idx, minutes in enumerate(increments):
-        ts = (now + timedelta(minutes=minutes)).strftime("%H:%M")
-        title, detail = labels[idx]
-        severity = "warning" if "EV" in title else "info"
-        if "surge" in title:
-            severity = "success"
-        events.append(TimelineEvent(time=ts, title=title, detail=detail, severity=severity))
-    return events
-
-
-def generate_health_statuses() -> List[HealthStatus]:
-    return [
-        HealthStatus(label="Telemetry ingestion", value="Nominal · 24k msgs/min", severity="success"),
-        HealthStatus(label="Pricing engine", value="All shards synced", severity="success"),
-        HealthStatus(label="Computer vision", value="1 alert · calibrate Bay 14", severity="warning"),
-        HealthStatus(label="Incidents", value="0 escalations", severity="success"),
-    ]
-
-
-def generate_dispatch_feed() -> List[DispatchEvent]:
-    return [
-        DispatchEvent(message="Redirected driver Salman to Marina Deck L5, 32 slots free."),
-        DispatchEvent(message="Valet crew requested EV cable swap at Downtown Oasis."),
-        DispatchEvent(message="Tour bus permit confirmed for Gate C."),
-    ]
-
-
-app = FastAPI()
-
-
-@app.on_event("startup")
-def startup_event():
-    init_collection()
-    seed_demo_data()
-
-
-@app.get("/health")
-def health():
-    return {"status": "ok"}
-
-
-@app.post("/suggest", response_model=List[SuggestResult])
-def suggest_parking(req: SuggestRequest):
-    query_vec = ideal_query_vector(req)
-    query_filter = Filter(must=vehicle_filter_conditions(req))
-    limit = min(10, req.results + (1 if req.duration_hours > 3 else 0))
-
-    hits = client.search(
+def init_collection() -> None:
+    client.recreate_collection(
         collection_name=COLLECTION_NAME,
-        query_vector=query_vec,
-        query_filter=query_filter,
-        limit=limit,
+        vectors_config=VectorParams(size=VECTOR_SIZE, distance=Distance.EUCLID),
     )
 
-    results: List[SuggestResult] = []
-    for hit in hits:
-        payload = hit.payload
-        results.append(
-            SuggestResult(
-                name=payload["name"],
-                city=payload["city"],
-                lat=payload["lat"],
-                lng=payload["lng"],
-                price_per_hour=payload["price_per_hour"],
-                walking_time_minutes=payload["walking_time_minutes"],
-                covered=payload["covered"],
-                ev_support=payload.get("ev_support", False),
-                score=hit.score,
-            )
-        )
-    return results
+    # Index for filtering by city
+    client.create_payload_index(
+        collection_name=COLLECTION_NAME,
+        field_name="city",
+        field_schema=PayloadSchemaType.KEYWORD,
+    )
+
+    # Index for filtering by EV support (not required, but good practice)
+    client.create_payload_index(
+        collection_name=COLLECTION_NAME,
+        field_name="ev_support",
+        field_schema=PayloadSchemaType.BOOL,
+    )
 
 
-@app.get("/insights", response_model=List[Insight])
-def insights(city: str = "Dubai"):
-    return generate_insights(city)
-
-
-@app.get("/timeline", response_model=List[TimelineEvent])
-def timeline(city: str = "Dubai"):
-    return generate_timeline(city)
-
-
-@app.get("/status-board", response_model=List[HealthStatus])
-def status_board():
-    return generate_health_statuses()
-
-
-@app.get("/dispatch", response_model=List[DispatchEvent])
-def dispatch_feed():
-    return generate_dispatch_feed()
-
-
-def seed_demo_data() -> None:
+def seed_data() -> None:
     global SEED_ZONES
+
     zones = [
         ParkingZone(
             id=1,
@@ -328,19 +207,6 @@ def seed_demo_data() -> None:
         ),
         ParkingZone(
             id=4,
-            name="Mussafah Open Yard",
-            city="Abu Dhabi",
-            lat=24.3347,
-            lng=54.4890,
-            congestion_now=0.2,
-            price_per_hour=2.0,
-            walking_time_minutes=10,
-            covered=False,
-            ev_support=False,
-            amenities=["Wide bays"],
-        ),
-        ParkingZone(
-            id=5,
             name="Sharjah Waterfront Promenade",
             city="Sharjah",
             lat=25.3474,
@@ -353,7 +219,7 @@ def seed_demo_data() -> None:
             amenities=["Shade sail", "Retail access"],
         ),
         ParkingZone(
-            id=6,
+            id=5,
             name="Expo City Mobility Hub",
             city="Dubai",
             lat=24.9717,
@@ -367,26 +233,114 @@ def seed_demo_data() -> None:
         ),
     ]
 
-    points = []
-    for zone in zones:
-        points.append(
-            PointStruct(
-                id=zone.id,
-                vector=build_parking_vector(zone),
-                payload={
-                    "name": zone.name,
-                    "city": zone.city,
-                    "lat": zone.lat,
-                    "lng": zone.lng,
-                    "price_per_hour": zone.price_per_hour,
-                    "walking_time_minutes": zone.walking_time_minutes,
-                    "covered": zone.covered,
-                    "ev_support": zone.ev_support,
-                    "amenities": zone.amenities or [],
-                },
-            )
+    points = [
+        PointStruct(
+            id=z.id,
+            vector=build_vector(z),
+            payload={
+                "id": z.id,
+                "name": z.name,
+                "city": z.city,
+                "lat": z.lat,
+                "lng": z.lng,
+                "congestion_now": z.congestion_now,
+                "price_per_hour": z.price_per_hour,
+                "walking_time_minutes": z.walking_time_minutes,
+                "covered": z.covered,
+                "ev_support": z.ev_support,
+                "amenities": z.amenities or [],
+            },
         )
+        for z in zones
+    ]
 
     client.upsert(collection_name=COLLECTION_NAME, points=points)
     SEED_ZONES = zones
 
+
+# ---------------------------------------------------------
+# FASTAPI APP
+# ---------------------------------------------------------
+
+app = FastAPI()
+
+# CORS – allow your static frontend to call the API
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # for local dev; tighten later if you want
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+
+@app.on_event("startup")
+def startup() -> None:
+    init_collection()
+    seed_data()
+    print("✓ Qdrant collection created and seeded.")
+
+
+# ---------------------------------------------------------
+# ENDPOINTS
+# ---------------------------------------------------------
+
+@app.get("/health")
+def health():
+    return {"status": "ok"}
+
+
+@app.post("/suggest", response_model=List[SuggestResult])
+def suggest(req: SuggestRequest):
+    hits = client.search(
+        collection_name=COLLECTION_NAME,
+        query_vector=query_vector(req),
+        query_filter=build_filter(req),
+        limit=req.results,
+    )
+
+    return [
+        SuggestResult(
+            name=h.payload["name"],
+            city=h.payload["city"],
+            price_per_hour=h.payload["price_per_hour"],
+            lat=h.payload["lat"],
+            lng=h.payload["lng"],
+            walking_time_minutes=h.payload["walking_time_minutes"],
+            covered=h.payload["covered"],
+            ev_support=h.payload["ev_support"],
+            score=h.score,
+        )
+        for h in hits
+    ]
+
+
+@app.get("/insights", response_model=List[Insight])
+def insights(city: str = "Dubai"):
+    return [
+        Insight(title="Parking trending", detail=f"Live patterns for {city}", severity="info"),
+        Insight(title="Demand up", detail=f"Peak-hour demand rising in {city}", severity="warning"),
+    ]
+
+
+@app.get("/timeline", response_model=List[TimelineEvent])
+def timeline(city: str = "Dubai"):
+    now = datetime.utcnow().strftime("%H:%M")
+    return [
+        TimelineEvent(time=now, title="Sensor sync", detail=f"Refreshing nodes in {city}", severity="info")
+    ]
+
+
+@app.get("/status-board", response_model=List[HealthStatus])
+def status_board():
+    return [
+        HealthStatus(label="Telemetry", value="Nominal", severity="success"),
+        HealthStatus(label="Pricing", value="Stable", severity="success"),
+    ]
+
+
+@app.get("/dispatch", response_model=List[DispatchEvent])
+def dispatch():
+    return [
+        DispatchEvent(message="Routing driver to Marina Deck"),
+        DispatchEvent(message="EV bay recalibration scheduled"),
+    ]
