@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>ParkPilot | Intelligent Parking Orchestrator</title>
+    <title>ParkSense | AI Parking Recommendations</title>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Inter:wght@400;500&display=swap" rel="stylesheet" />
@@ -14,65 +14,47 @@
 <div class="bg-sheen second"></div>
 <div class="page">
     <header class="site-header">
-        <div class="logo">ParkPilot</div>
+        <div class="logo">
+            ParkSense
+            <span class="logo__tagline">AI Parking Intelligence</span>
+        </div>
         <nav>
-            <a href="#hero">Product</a>
-            <a href="#commandCenter">Command Center</a>
-            <a href="#resultsSection">Live lots</a>
-            <a href="#cta">Docs</a>
+            <a href="#hero">Vision</a>
+            <a href="#commandCenter">AI Console</a>
+            <a href="#footer">Partners</a>
         </nav>
         <div class="header-actions">
-            <button class="ghost">View API</button>
-            <button class="primary">Launch Console</button>
+            <button class="ghost">View tech stack</button>
+            <button class="primary">Request pilot</button>
         </div>
     </header>
 
     <section class="hero" id="hero">
         <div class="hero__copy">
-            <p class="eyebrow">Parking AI Cloud</p>
-            <h1>City-scale parking ops, orchestrated in one pane.</h1>
+            <p class="eyebrow">Urban mobility copilot</p>
+            <h1>ParkSense predicts the safest, smartest stall before you arrive.</h1>
             <p class="subtitle">
-                Fuse live sensors, forecasts, and pricing rules to direct drivers to the perfect spot in seconds.
-                ParkPilot keeps occupancy balanced, revenue optimized, and EV chargers always primed.
+                Google Maps scans nearby curb and garage zones, Qdrant remembers multimodal congestion, imagery, and pricing signals,
+                and an LLM agent balances safety, walking distance, and cost so drivers stop circling and cities cut emissions.
             </p>
             <div class="actions">
-                <button class="primary large">Start routing cars</button>
-                <button class="secondary-btn">Watch 90s demo ?</button>
+                <button class="primary large">Plan my arrival</button>
+                <button class="secondary-btn">Explore the stack</button>
             </div>
             <ul class="hero__stats">
                 <li>
-                    <p>Realtime open spaces</p>
-                    <h3 id="statAvailability">0</h3>
-                    <span>across monitored garages</span>
+                    <h3>Google Maps API</h3>
+                    <p>Surfaces live curb and garage inventory, with driving + walking ETAs to every candidate zone.</p>
                 </li>
                 <li>
-                    <p>Avg. hourly rate</p>
-                    <h3 id="statRate">0 AED</h3>
-                    <span>dynamically priced</span>
+                    <h3>Qdrant vector memory</h3>
+                    <p>Stores text, congestion traces, entrance imagery, and safety indicators for instant similarity search.</p>
                 </li>
                 <li>
-                    <p>Confidence index</p>
-                    <h3 id="statConfidence">0%</h3>
-                    <span>prediction certainty</span>
+                    <h3>LLM preference agent</h3>
+                    <p>Understands driver intent, learns habits, and tunes recommendations for traffic, price, or comfort.</p>
                 </li>
             </ul>
-        </div>
-        <div class="hero__panel">
-            <div class="radar">
-                <p>Network health</p>
-                <h2>99.2%</h2>
-                <span>uptime across sensors</span>
-                <div class="ring"></div>
-                <div class="ring second"></div>
-            </div>
-            <div class="feed" id="liveFeed">
-                <h4>Live dispatch</h4>
-                <ul>
-                    <li>Connecting to curb sensors…</li>
-                    <li>Syncing EV bay occupancy…</li>
-                    <li>Calibrating demand heatmap…</li>
-                </ul>
-            </div>
         </div>
     </section>
 
@@ -112,8 +94,6 @@
                         Vehicle
                         <select id="vehicle">
                             <option value="standard">Standard</option>
-                            <option value="suv">SUV / Large</option>
-                            <option value="ev">EV (charging)</option>
                         </select>
                     </label>
                     <label class="switch">
@@ -158,84 +138,10 @@
             </div>
         </section>
 
-        <section class="panel-grid analytics">
-            <div class="panel insights-panel">
-                <div class="panel-header">
-                    <div>
-                        <p class="eyebrow">AI insights</p>
-                        <h3>Operational intelligence</h3>
-                    </div>
-                    <button class="ghost" id="refreshInsights">Refresh</button>
-                </div>
-                <ul id="insightsList" class="insights-list"></ul>
-            </div>
-            <div class="panel timeline-panel">
-                <div class="panel-header">
-                    <div>
-                        <p class="eyebrow">Incoming events</p>
-                        <h3>Ops timeline</h3>
-                    </div>
-                    <span class="tag muted">Auto-sorted</span>
-                </div>
-                <ul class="timeline" id="timeline"></ul>
-            </div>
-        </section>
-
-        <section class="panel results-panel" id="resultsSection">
-            <div class="panel-header">
-                <div>
-                    <p class="eyebrow">Curated supply</p>
-                    <h2>Matched parking zones</h2>
-                </div>
-                <div class="filter-chips">
-                    <button class="ghost" type="button">Sort by proximity</button>
-                    <button class="ghost" type="button">Sort by rating</button>
-                    <button class="ghost" type="button">With EV</button>
-                </div>
-            </div>
-            <div id="results" class="results__list">
-                <div class="empty-state">
-                    Run a query to see AI-ranked lots.
-                </div>
-            </div>
-        </section>
-
-        <section class="panel-grid live-health">
-            <div class="panel health-card" id="systemHealth">
-                <div class="panel-header">
-                    <div>
-                        <p class="eyebrow">Platform health</p>
-                        <h3>Status board</h3>
-                    </div>
-                    <span class="tag">Green</span>
-                </div>
-                <ul class="status-list"></ul>
-            </div>
-            <div class="panel feed-card">
-                <div class="panel-header">
-                    <div>
-                        <p class="eyebrow">Fleet chatter</p>
-                        <h3>Dispatch feed</h3>
-                    </div>
-                    <button class="ghost" id="clearFeed">Clear</button>
-                </div>
-                <ul class="feed-list" id="dispatchFeed"></ul>
-            </div>
-        </section>
-
-        <section class="panel cta" id="cta">
-            <p class="eyebrow">Deploy in days</p>
-            <h2>Plug ParkPilot into your city stack.</h2>
-            <p class="subtitle">SDKs, webhooks, and GIS connectors help ops teams go live fast.</p>
-            <div class="actions">
-                <button class="primary large">Book architecture review</button>
-                <button class="secondary-btn">Download whitepaper</button>
-            </div>
-        </section>
     </main>
 
-    <footer class="site-footer">
-        <p>© ParkPilot AI • Built for hackathons & real cities alike.</p>
+    <footer class="site-footer" id="footer">
+        <p>&copy; ParkSense - Built for hackathons &amp; real cities alike.</p>
         <div class="footer-links">
             <a href="#hero">Overview</a>
             <a href="#commandCenter">Integrations</a>
