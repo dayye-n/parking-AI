@@ -205,7 +205,6 @@ const renderResults = lots => {
                         <small>/hr</small>
                     </div>
                     <div class="lot-card__actions">
-                        <button class="primary">Reserve spot</button>
                         <a class="ghost-link" href="${buildDirectionsUrl(lot)}" target="_blank" rel="noopener">
                             Get directions
                         </a>
