@@ -11,7 +11,10 @@ const fallbackLots = [
         id: 1,
         name: "Downtown Oasis Garage",
         city: "Dubai",
-        distance: "450 m",
+        lat: 25.2048,
+        lng: 55.2708,
+        distance_text: "450 m",
+        duration_text: "3 min walk",
         price: 8,
         spaces: 27,
         rating: 4.8,
@@ -23,7 +26,10 @@ const fallbackLots = [
         id: 2,
         name: "Marina Boardwalk Deck",
         city: "Dubai",
-        distance: "1.1 km",
+        lat: 25.0846,
+        lng: 55.1389,
+        distance_text: "1.1 km",
+        duration_text: "4 min drive",
         price: 5,
         spaces: 53,
         rating: 4.4,
@@ -35,7 +41,10 @@ const fallbackLots = [
         id: 3,
         name: "Corniche Business Hub",
         city: "Abu Dhabi",
-        distance: "300 m",
+        lat: 24.4857,
+        lng: 54.3545,
+        distance_text: "300 m",
+        duration_text: "2 min walk",
         price: 7,
         spaces: 18,
         rating: 4.6,
@@ -47,7 +56,10 @@ const fallbackLots = [
         id: 4,
         name: "Al Majaz Waterfront",
         city: "Sharjah",
-        distance: "650 m",
+        lat: 25.3373,
+        lng: 55.3813,
+        distance_text: "650 m",
+        duration_text: "4 min walk",
         price: 4,
         spaces: 45,
         rating: 4.1,
@@ -59,7 +71,10 @@ const fallbackLots = [
         id: 5,
         name: "Expo City Mobility Hub",
         city: "Dubai",
-        distance: "2.2 km",
+        lat: 24.9717,
+        lng: 55.1552,
+        distance_text: "2.2 km",
+        duration_text: "6 min drive",
         price: 12,
         spaces: 12,
         rating: 4.9,
@@ -71,7 +86,10 @@ const fallbackLots = [
         id: 6,
         name: "Yas Mall Podium",
         city: "Abu Dhabi",
-        distance: "900 m",
+        lat: 24.4899,
+        lng: 54.6034,
+        distance_text: "900 m",
+        duration_text: "5 min walk",
         price: 9,
         spaces: 34,
         rating: 4.3,
@@ -80,6 +98,50 @@ const fallbackLots = [
         confidence: 86
     }
 ];
+
+const normalizeLot = (item, index = 0) => {
+    const price = item.price ?? item.price_per_hour ?? 0;
+    const spaces =
+        item.spaces ??
+        item.open_spots ??
+        Math.max(5, Math.floor(Math.random() * 40));
+    const rating = item.rating ?? 4 + Math.random() * 0.5;
+    const type = item.type ?? (item.covered ? "Covered" : "Outdoor");
+    const confidence =
+        item.confidence ??
+        Math.max(60, Math.min(99, 100 - (item.score || 0) * 5));
+    const distanceText =
+        item.distanceText || item.distance_text || item.distance || null;
+    const durationText =
+        item.durationText ||
+        item.duration_text ||
+        (item.travel_time_minutes
+            ? `${Math.round(item.travel_time_minutes)} min`
+            : null);
+    const directionsUrl =
+        item.directionsUrl ||
+        item.directions_url ||
+        (item.lat && item.lng
+            ? `https://www.google.com/maps/search/?api=1&query=${item.lat},${item.lng}`
+            : null);
+
+    return {
+        id: item.id ?? index + 1,
+        name: item.name,
+        city: item.city,
+        lat: item.lat,
+        lng: item.lng,
+        price,
+        spaces,
+        rating,
+        type,
+        amenities: item.amenities ?? [],
+        confidence,
+        distanceText,
+        durationText,
+        directionsUrl
+    };
+};
 
 // fallback for dashboard tiles
 const insightsDeck = [
@@ -148,15 +210,63 @@ const mapOverlayLabel    = document.getElementById("mapOverlayLabel");
 const mapOverlayHeadline = document.getElementById("mapOverlayHeadline");
 const mapOverlaySubline  = document.getElementById("mapOverlaySubline");
 const heroFeedList       = document.querySelector("#liveFeed ul");
+const originLatInput     = document.getElementById("originLat");
+const originLngInput     = document.getElementById("originLng");
+const originDisplayInput = document.getElementById("originDisplay");
+const useLocationBtn     = document.getElementById("useLocation");
+const locationStatus     = document.getElementById("locationStatus");
+
+const setOriginFields = (lat, lng, labelText) => {
+    if (!originLatInput || !originLngInput) return;
+    originLatInput.value = String(lat);
+    originLngInput.value = String(lng);
+    const latNum = Number(lat);
+    const lngNum = Number(lng);
+    const fallbackLabel =
+        Number.isFinite(latNum) && Number.isFinite(lngNum)
+            ? `Lat ${latNum.toFixed(4)}, Lon ${lngNum.toFixed(4)}`
+            : "Location selected";
+    if (originDisplayInput) {
+        originDisplayInput.value = labelText ?? fallbackLabel;
+    }
+    if (locationStatus) {
+        locationStatus.textContent = "Location locked for live travel times.";
+    }
+};
+
+const requestBrowserLocation = () => {
+    if (!navigator.geolocation) {
+        if (locationStatus) {
+            locationStatus.textContent = "Geolocation not supported in this browser.";
+        }
+        return;
+    }
+    if (locationStatus) {
+        locationStatus.textContent = "Requesting location…";
+    }
+    navigator.geolocation.getCurrentPosition(
+        ({ coords }) => {
+            setOriginFields(coords.latitude, coords.longitude);
+        },
+        () => {
+            if (locationStatus) {
+                locationStatus.textContent =
+                    "Unable to fetch location. Please allow browser access.";
+            }
+        },
+        { enableHighAccuracy: true, timeout: 8000 }
+    );
+};
+
+if (useLocationBtn) {
+    useLocationBtn.addEventListener("click", requestBrowserLocation);
+}
 
 // -----------------------------------------------------
 //  UTILITIES
 // -----------------------------------------------------
 const formatCurrency = value => `${value.toFixed(0)} AED`;
 const getStars = rating => "★".repeat(Math.round(rating));
-
-const buildDirectionsUrl = lot =>
-    `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(`${lot.name} ${lot.city}`)}`;
 
 const setLoading = isLoading => {
     if (!isLoading || !resultsEl) return;
@@ -188,12 +298,17 @@ const renderResults = lots => {
                 <div class="lot-card__header">
                     <div>
                         <h4>${lot.name}</h4>
-                        <p class="secondary">${lot.distance} · ${lot.type}</p>
+                        <p class="secondary">
+                            ${lot.city} · ${lot.type}
+                            ${lot.distanceText ? ` · ${lot.distanceText}` : ""}
+                        </p>
                     </div>
                     <span class="badge">${lot.spaces} open</span>
                 </div>
                 <div class="lot-card__meta">
                     <span>${getStars(lot.rating)} ${lot.rating.toFixed(1)}</span>
+                    ${lot.durationText ? `<span>${lot.durationText}</span>` : ""}
+                    ${lot.distanceText ? `<span>${lot.distanceText}</span>` : ""}
                     <span>${lot.confidence}% confidence</span>
                 </div>
                 <div class="amenities">
@@ -204,11 +319,12 @@ const renderResults = lots => {
                         ${formatCurrency(lot.price)}
                         <small>/hr</small>
                     </div>
-                    <div class="lot-card__actions">
-                        <a class="ghost-link" href="${buildDirectionsUrl(lot)}" target="_blank" rel="noopener">
-                            Get directions
-                        </a>
-                    </div>
+                    ${lot.directionsUrl ? `
+                        <div class="lot-card__actions">
+                            <a class="ghost-link" href="${lot.directionsUrl}" target="_blank" rel="noopener">
+                                Get directions
+                            </a>
+                        </div>` : ""}
                 </div>
             </article>
         `)
@@ -216,15 +332,17 @@ const renderResults = lots => {
 };
 
 const updateStats = lots => {
-    if (!statAvailability || !statRate || !statConfidence) return;
+    if (!statAvailability || !statRate || !statConfidence || !lots?.length) {
+        if (statAvailability) statAvailability.textContent = "0";
+        if (statRate) statRate.textContent = "0 AED";
+        if (statConfidence) statConfidence.textContent = "0%";
+        return;
+    }
 
-    const totalSpaces = lots.reduce((sum, lot) => sum + lot.spaces, 0);
-    const avgPrice = lots.length
-        ? lots.reduce((sum, lot) => sum + lot.price, 0) / lots.length
-        : 0;
-    const avgConfidence = lots.length
-        ? lots.reduce((sum, lot) => sum + lot.confidence, 0) / lots.length
-        : 0;
+    const totalSpaces = lots.reduce((sum, lot) => sum + (lot.spaces || 0), 0);
+    const avgPrice = lots.reduce((sum, lot) => sum + (lot.price || 0), 0) / lots.length;
+    const avgConfidence =
+        lots.reduce((sum, lot) => sum + (lot.confidence || 0), 0) / lots.length;
 
     statAvailability.textContent = totalSpaces;
     statRate.textContent = `${avgPrice.toFixed(1)} AED`;
@@ -309,7 +427,7 @@ const updateMapNarrative = (city, lots) => {
     mapOverlayHeadline.textContent =
         `${topLot.name} trending ${avgConfidence.toFixed(0)}% confidence`;
     mapOverlaySubline.textContent =
-        `${topLot.spaces} open bays · ${formatCurrency(avgPrice)} / hr average.`;
+        `${topLot.spaces} open bays - ${formatCurrency(avgPrice)} / hr average.`;
 };
 
 const updateHeroFeed = messages => {
@@ -343,23 +461,7 @@ const fetchSuggestions = async payload => {
         }
 
         const data = await res.json();
-
-        // Map backend fields → UI fields
-        return data.map((item, index) => ({
-            id: index + 1,
-            name: item.name,
-            city: item.city,
-            distance: `${(Math.random() * 1.5 + 0.2).toFixed(1)} km`,
-            price: item.price_per_hour,
-            spaces: Math.floor(Math.random() * 40) + 5,
-            rating: 4 + Math.random(),
-            type: item.covered ? "Covered" : "Outdoor",
-            amenities: item.covered
-                ? ["Covered", "Security patrol"]
-                : ["Outdoor", "Lighting"],
-            // Qdrant: lower distance = better, so invert for "confidence"
-            confidence: Math.max(60, Math.min(99, 100 - item.score * 5))
-        }));
+        return data.map((item, index) => normalizeLot(item, index));
     } catch (err) {
         console.warn("Falling back to mock parking lots:", err);
         clearTimeout(timeout);
@@ -411,8 +513,11 @@ const fetchDispatch = async () => {
 // -----------------------------------------------------
 //  SEARCH FLOW
 // -----------------------------------------------------
-const filterFallbackLots = city =>
-    fallbackLots.filter(lot => lot.city === city);
+const filterFallbackLots = city => {
+    const candidates = fallbackLots.filter(lot => lot.city === city);
+    const source = candidates.length ? candidates : fallbackLots;
+    return source.map((lot, index) => normalizeLot(lot, index));
+};
 
 const findParking = async event => {
     event?.preventDefault();
@@ -443,6 +548,10 @@ const findParking = async event => {
         vehicle_type: vehicleType,
         duration_hours: durationHours
     };
+    if (originLatInput?.value && originLngInput?.value) {
+        payload.origin_lat = parseFloat(originLatInput.value);
+        payload.origin_lng = parseFloat(originLngInput.value);
+    }
 
     const apiResults = await fetchSuggestions(payload);
     const matches =
@@ -477,6 +586,10 @@ window.addEventListener("DOMContentLoaded", () => {
     const arrivalInput = document.getElementById("arrival");
     if (arrivalInput) {
         arrivalInput.value = new Date().toISOString().slice(0, 16);
+    }
+
+    if (locationStatus && !navigator.geolocation) {
+        locationStatus.textContent = "Geolocation not supported in this browser.";
     }
 
     // initial placeholders while first API calls run

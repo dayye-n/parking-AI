@@ -1,7 +1,10 @@
-﻿import os
+import json
+import os
 from datetime import datetime
+from pathlib import Path
 from typing import List, Optional
 
+import requests
 from dotenv import load_dotenv
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -26,9 +29,12 @@ load_dotenv()
 
 QDRANT_URL = os.getenv("QDRANT_URL", "http://localhost:6333")
 QDRANT_API_KEY = os.getenv("QDRANT_API_KEY")
+GOOGLE_MAPS_API_KEY = os.getenv("GOOGLE_MAPS_API_KEY")
 
 COLLECTION_NAME = "parking_zones"
 VECTOR_SIZE = 5
+DATA_PATH = Path(__file__).resolve().parent / "data" / "parking_zones.json"
+GOOGLE_DISTANCE_URL = "https://maps.googleapis.com/maps/api/distancematrix/json"
 
 client = QdrantClient(url=QDRANT_URL, api_key=QDRANT_API_KEY or None)
 
@@ -60,9 +66,12 @@ class SuggestRequest(BaseModel):
     prefer_covered: bool = True
     vehicle_type: str = "standard"      # "standard" | "ev"
     duration_hours: int = 1
+    origin_lat: Optional[float] = None
+    origin_lng: Optional[float] = None
 
 
 class SuggestResult(BaseModel):
+    id: int
     name: str
     city: str
     price_per_hour: float
@@ -71,7 +80,15 @@ class SuggestResult(BaseModel):
     walking_time_minutes: float
     covered: bool
     ev_support: bool
+    amenities: List[str]
     score: float
+    open_spots: Optional[int] = None
+    distance_meters: Optional[int] = None
+    distance_text: Optional[str] = None
+    duration_seconds: Optional[int] = None
+    duration_text: Optional[str] = None
+    travel_time_minutes: Optional[float] = None
+    directions_url: Optional[str] = None
 
 
 class Insight(BaseModel):
@@ -165,73 +182,11 @@ def init_collection() -> None:
 def seed_data() -> None:
     global SEED_ZONES
 
-    zones = [
-        ParkingZone(
-            id=1,
-            name="Dubai Mall Parking P2",
-            city="Dubai",
-            lat=25.1989,
-            lng=55.2793,
-            congestion_now=0.7,
-            price_per_hour=0.0,
-            walking_time_minutes=5,
-            covered=True,
-            ev_support=True,
-            amenities=["EV fast charge", "Security patrol"],
-        ),
-        ParkingZone(
-            id=2,
-            name="Business Bay Open Lot",
-            city="Dubai",
-            lat=25.1841,
-            lng=55.2722,
-            congestion_now=0.4,
-            price_per_hour=10.0,
-            walking_time_minutes=8,
-            covered=False,
-            ev_support=False,
-            amenities=["Shuttle", "Lighting"],
-        ),
-        ParkingZone(
-            id=3,
-            name="Abu Dhabi Corniche Underground",
-            city="Abu Dhabi",
-            lat=24.4939,
-            lng=54.3706,
-            congestion_now=0.5,
-            price_per_hour=4.0,
-            walking_time_minutes=6,
-            covered=True,
-            ev_support=True,
-            amenities=["CCTV", "Ticketless entry"],
-        ),
-        ParkingZone(
-            id=4,
-            name="Sharjah Waterfront Promenade",
-            city="Sharjah",
-            lat=25.3474,
-            lng=55.3846,
-            congestion_now=0.35,
-            price_per_hour=3.0,
-            walking_time_minutes=4,
-            covered=True,
-            ev_support=True,
-            amenities=["Shade sail", "Retail access"],
-        ),
-        ParkingZone(
-            id=5,
-            name="Expo City Mobility Hub",
-            city="Dubai",
-            lat=24.9717,
-            lng=55.1552,
-            congestion_now=0.6,
-            price_per_hour=12.0,
-            walking_time_minutes=7,
-            covered=True,
-            ev_support=True,
-            amenities=["VIP valet", "Guided parking"],
-        ),
-    ]
+    if not DATA_PATH.exists():
+        raise FileNotFoundError(f"Seed data not found at {DATA_PATH}")
+
+    raw = json.loads(DATA_PATH.read_text())
+    zones = [ParkingZone(**zone) for zone in raw]
 
     points = [
         PointStruct(
@@ -249,6 +204,8 @@ def seed_data() -> None:
                 "covered": z.covered,
                 "ev_support": z.ev_support,
                 "amenities": z.amenities or [],
+                "congestion_now": z.congestion_now,
+                "safety_score": z.safety_score,
             },
         )
         for z in zones
@@ -256,6 +213,73 @@ def seed_data() -> None:
 
     client.upsert(collection_name=COLLECTION_NAME, points=points)
     SEED_ZONES = zones
+
+
+def build_directions_url(
+    origin_lat: Optional[float],
+    origin_lng: Optional[float],
+    dest_lat: float,
+    dest_lng: float,
+) -> str:
+    destination = f"{dest_lat},{dest_lng}"
+    if origin_lat is not None and origin_lng is not None:
+        origin = f"{origin_lat},{origin_lng}"
+        return (
+            "https://www.google.com/maps/dir/?api=1"
+            f"&origin={origin}&destination={destination}"
+        )
+    return f"https://www.google.com/maps/search/?api=1&query={destination}"
+
+
+def enrich_with_distance_data(
+    results: List[SuggestResult],
+    origin_lat: Optional[float],
+    origin_lng: Optional[float],
+) -> None:
+    if not results:
+        return
+
+    # Always provide a directions URL even without Google Distance Matrix
+    for result in results:
+        result.directions_url = build_directions_url(origin_lat, origin_lng, result.lat, result.lng)
+
+    if origin_lat is None or origin_lng is None or not GOOGLE_MAPS_API_KEY:
+        return
+
+    destinations = "|".join(f"{r.lat},{r.lng}" for r in results)
+    params = {
+        "origins": f"{origin_lat},{origin_lng}",
+        "destinations": destinations,
+        "mode": "driving",
+        "units": "metric",
+        "key": GOOGLE_MAPS_API_KEY,
+    }
+
+    try:
+        response = requests.get(GOOGLE_DISTANCE_URL, params=params, timeout=5)
+        response.raise_for_status()
+        data = response.json()
+    except requests.RequestException as exc:
+        print(f"Google Distance Matrix error: {exc}")
+        return
+
+    rows = data.get("rows", [])
+    if not rows:
+        return
+
+    elements = rows[0].get("elements", [])
+    for result, element in zip(results, elements):
+        if element.get("status") != "OK":
+            continue
+        distance = element.get("distance")
+        duration = element.get("duration")
+        if distance:
+            result.distance_meters = distance.get("value")
+            result.distance_text = distance.get("text")
+        if duration:
+            result.duration_seconds = duration.get("value")
+            result.duration_text = duration.get("text")
+            result.travel_time_minutes = round(duration.get("value", 0) / 60, 2)
 
 
 # ---------------------------------------------------------
@@ -298,8 +322,9 @@ def suggest(req: SuggestRequest):
         limit=req.results,
     )
 
-    return [
+    results = [
         SuggestResult(
+            id=h.payload["id"],
             name=h.payload["name"],
             city=h.payload["city"],
             price_per_hour=h.payload["price_per_hour"],
@@ -308,10 +333,15 @@ def suggest(req: SuggestRequest):
             walking_time_minutes=h.payload["walking_time_minutes"],
             covered=h.payload["covered"],
             ev_support=h.payload["ev_support"],
+            amenities=h.payload.get("amenities", []),
+            open_spots=max(5, int((1 - h.payload.get("congestion_now", 0.5)) * 40)),
             score=h.score,
         )
         for h in hits
     ]
+
+    enrich_with_distance_data(results, req.origin_lat, req.origin_lng)
+    return results
 
 
 @app.get("/insights", response_model=List[Insight])
