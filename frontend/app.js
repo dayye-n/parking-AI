@@ -155,8 +155,11 @@ const heroFeedList       = document.querySelector("#liveFeed ul");
 const formatCurrency = value => `${value.toFixed(0)} AED`;
 const getStars = rating => "★".repeat(Math.round(rating));
 
+const buildDirectionsUrl = lot =>
+    `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(`${lot.name} ${lot.city}`)}`;
+
 const setLoading = isLoading => {
-    if (!isLoading) return;
+    if (!isLoading || !resultsEl) return;
     resultsEl.innerHTML = `
         <div class="skeleton-card"></div>
         <div class="skeleton-card"></div>
@@ -168,6 +171,8 @@ const setLoading = isLoading => {
 //  RENDER FUNCTIONS
 // -----------------------------------------------------
 const renderResults = lots => {
+    if (!resultsEl) return;
+
     if (!lots.length) {
         resultsEl.innerHTML = `
             <div class="empty-state">
@@ -199,7 +204,12 @@ const renderResults = lots => {
                         ${formatCurrency(lot.price)}
                         <small>/hr</small>
                     </div>
-                    <button class="primary">Reserve spot</button>
+                    <div class="lot-card__actions">
+                        <button class="primary">Reserve spot</button>
+                        <a class="ghost-link" href="${buildDirectionsUrl(lot)}" target="_blank" rel="noopener">
+                            Get directions
+                        </a>
+                    </div>
                 </div>
             </article>
         `)
@@ -207,6 +217,8 @@ const renderResults = lots => {
 };
 
 const updateStats = lots => {
+    if (!statAvailability || !statRate || !statConfidence) return;
+
     const totalSpaces = lots.reduce((sum, lot) => sum + lot.spaces, 0);
     const avgPrice = lots.length
         ? lots.reduce((sum, lot) => sum + lot.price, 0) / lots.length
@@ -221,6 +233,8 @@ const updateStats = lots => {
 };
 
 const populateInsights = insights => {
+    if (!insightsList) return;
+
     const source = insights && insights.length ? insights : insightsDeck;
     const sample = [...source].sort(() => Math.random() - 0.5).slice(0, 4);
 
@@ -235,6 +249,8 @@ const populateInsights = insights => {
 };
 
 const populateTimeline = events => {
+    if (!timelineEl) return;
+
     const source = events && events.length ? events : timelineEvents;
 
     timelineEl.innerHTML = source
@@ -249,6 +265,8 @@ const populateTimeline = events => {
 };
 
 const renderSystemHealth = statuses => {
+    if (!systemHealthList) return;
+
     const source = statuses && statuses.length ? statuses : healthStatuses;
 
     systemHealthList.innerHTML = source
@@ -262,11 +280,15 @@ const renderSystemHealth = statuses => {
 };
 
 const seedDispatchFeed = messages => {
+    if (!dispatchFeed) return;
+
     const source = messages && messages.length ? messages : dispatchQueue;
     dispatchFeed.innerHTML = source.map(entry => `<li>${entry}</li>`).join("");
 };
 
 const rotateDispatchFeed = () => {
+    if (!dispatchFeed) return;
+
     const message = dispatchQueue.shift();
     dispatchQueue.push(message);
     dispatchFeed.innerHTML = dispatchQueue.map(entry => `<li>${entry}</li>`).join("");
@@ -292,6 +314,7 @@ const updateMapNarrative = (city, lots) => {
 };
 
 const updateHeroFeed = messages => {
+    if (!heroFeedList) return;
     heroFeedList.innerHTML = messages.map(line => `<li>${line}</li>`).join("");
 };
 

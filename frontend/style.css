@@ -473,6 +473,28 @@ input[type="datetime-local"] {
     align-items: center;
 }
 
+.lot-card__actions {
+    display: flex;
+    gap: 10px;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+}
+
+.ghost-link {
+    display: inline-flex;
+    align-items: center;
+    border-radius: 999px;
+    border: 1px solid var(--border);
+    padding: 8px 14px;
+    color: var(--text);
+    text-decoration: none;
+    font-weight: 500;
+}
+
+.ghost-link:hover {
+    transform: translateY(-1px);
+}
+
 .price {
     font-size: 1.2rem;
 }
