@@ -139,7 +139,11 @@ const normalizeLot = (item, index = 0) => {
         confidence,
         distanceText,
         durationText,
-        directionsUrl
+        directionsUrl,
+        originSource: item.origin_source || item.originSource || null,
+        requestOriginLat: item.request_origin_lat ?? null,
+        requestOriginLng: item.request_origin_lng ?? null,
+        recommendationScore: item.recommendation_score ?? null
     };
 };
 
@@ -216,6 +220,15 @@ const originDisplayInput = document.getElementById("originDisplay");
 const useLocationBtn     = document.getElementById("useLocation");
 const locationStatus     = document.getElementById("locationStatus");
 
+let liveMap = null;
+let autocomplete = null;
+let parkingMarkers = [];
+let originMarker = null;
+let directionsService = null;
+let directionsRenderer = null;
+let lastOriginLabel = null;
+let activeDirectionsRoute = null;
+
 const setOriginFields = (lat, lng, labelText) => {
     if (!originLatInput || !originLngInput) return;
     originLatInput.value = String(lat);
@@ -229,8 +242,15 @@ const setOriginFields = (lat, lng, labelText) => {
     if (originDisplayInput) {
         originDisplayInput.value = labelText ?? fallbackLabel;
     }
+    lastOriginLabel = originDisplayInput?.value || labelText || fallbackLabel;
     if (locationStatus) {
         locationStatus.textContent = "Location locked for live travel times.";
+    }
+    // Center map on origin
+    if (liveMap) {
+        liveMap.setCenter({ lat: latNum, lng: lngNum });
+        liveMap.setZoom(14);
+        updateOriginMarker(latNum, lngNum, lastOriginLabel);
     }
 };
 
@@ -246,7 +266,16 @@ const requestBrowserLocation = () => {
     }
     navigator.geolocation.getCurrentPosition(
         ({ coords }) => {
-            setOriginFields(coords.latitude, coords.longitude);
+            const lat = coords.latitude;
+            const lng = coords.longitude;
+            setOriginFields(lat, lng, "My Location");
+            if (locationStatus) {
+                locationStatus.textContent = "Location set! Searching for parking...";
+            }
+            // Optionally trigger search automatically
+            if (form) {
+                setTimeout(() => form.dispatchEvent(new Event("submit")), 500);
+            }
         },
         () => {
             if (locationStatus) {
@@ -261,6 +290,8 @@ const requestBrowserLocation = () => {
 if (useLocationBtn) {
     useLocationBtn.addEventListener("click", requestBrowserLocation);
 }
+
+// Autocomplete will be initialized after Google Maps loads
 
 // -----------------------------------------------------
 //  UTILITIES
@@ -319,12 +350,16 @@ const renderResults = lots => {
                         ${formatCurrency(lot.price)}
                         <small>/hr</small>
                     </div>
-                    ${lot.directionsUrl ? `
-                        <div class="lot-card__actions">
+                    <div class="lot-card__actions">
+                        ${lot.directionsUrl ? `
                             <a class="ghost-link" href="${lot.directionsUrl}" target="_blank" rel="noopener">
-                                Get directions
+                                Open in Maps
                             </a>
-                        </div>` : ""}
+                        ` : ""}
+                        <button class="ghost-link" onclick="showDirections(${lot.lat}, ${lot.lng}, '${lot.name.replace(/'/g, "\\'")}')" style="border: none; background: none; cursor: pointer; color: inherit; text-decoration: underline;">
+                            Show route
+                        </button>
+                    </div>
                 </div>
             </article>
         `)
@@ -435,11 +470,323 @@ const updateHeroFeed = messages => {
     heroFeedList.innerHTML = messages.map(line => `<li>${line}</li>`).join("");
 };
 
+// Google Maps initialization
+window.initGoogleMaps = async () => {
+    try {
+        const configRes = await fetch(`${API_BASE_URL}/config`);
+        const config = await configRes.json();
+        const apiKey = config.google_maps_api_key;
+        
+        if (!apiKey) {
+            console.error("Google Maps API key not found");
+            return;
+        }
+
+        // Load Google Maps script dynamically if not already loaded
+        if (!window.google || !window.google.maps) {
+            window.initGoogleMapsMapCallback = initGoogleMapsMap;
+            const script = document.createElement("script");
+            script.src = `https://maps.googleapis.com/maps/api/js?key=${apiKey}&libraries=places,directions&callback=initGoogleMapsMapCallback`;
+            script.async = true;
+            script.defer = true;
+            document.head.appendChild(script);
+            return;
+        }
+
+        initGoogleMapsMap();
+    } catch (err) {
+        console.error("Failed to load Google Maps config:", err);
+    }
+};
+
+const initGoogleMapsMap = () => {
+    const mapEl = document.getElementById("mapPreview");
+    if (!mapEl || !window.google) return;
+
+    liveMap = new google.maps.Map(mapEl, {
+        center: { lat: 25.2048, lng: 55.2708 },
+        zoom: 12,
+        zoomControl: true,
+        mapTypeControl: false,
+        streetViewControl: false,
+        fullscreenControl: false,
+    });
+
+    directionsService = new google.maps.DirectionsService();
+    directionsRenderer = new google.maps.DirectionsRenderer({
+        map: liveMap,
+        suppressMarkers: false,
+    });
+
+    // Initialize Places Autocomplete
+    if (originDisplayInput && window.google.maps.places) {
+        const citySelect = document.getElementById("city");
+        const getCityBounds = () => {
+            const city = citySelect?.value || "Dubai";
+            const bounds = {
+                "Dubai": { north: 25.5, south: 24.8, east: 55.6, west: 54.8 },
+                "Abu Dhabi": { north: 24.7, south: 24.2, east: 54.8, west: 54.2 },
+                "Sharjah": { north: 25.5, south: 25.2, east: 55.6, west: 55.2 },
+            };
+            return bounds[city] || bounds["Dubai"];
+        };
+
+        autocomplete = new google.maps.places.Autocomplete(originDisplayInput, {
+            bounds: new google.maps.LatLngBounds(
+                new google.maps.LatLng(getCityBounds().south, getCityBounds().west),
+                new google.maps.LatLng(getCityBounds().north, getCityBounds().east)
+            ),
+            componentRestrictions: { country: "ae" },
+            fields: ["geometry", "formatted_address", "name"],
+        });
+
+        autocomplete.addListener("place_changed", () => {
+            const place = autocomplete.getPlace();
+            if (place.geometry) {
+                const lat = place.geometry.location.lat();
+                const lng = place.geometry.location.lng();
+                const label = place.formatted_address || place.name || originDisplayInput.value;
+                setOriginFields(lat, lng, label);
+            }
+        });
+
+        // Update bounds when city changes
+        if (citySelect) {
+            citySelect.addEventListener("change", () => {
+                if (autocomplete) {
+                    autocomplete.setBounds(
+                        new google.maps.LatLngBounds(
+                            new google.maps.LatLng(getCityBounds().south, getCityBounds().west),
+                            new google.maps.LatLng(getCityBounds().north, getCityBounds().east)
+                        )
+                    );
+                }
+            });
+        }
+    }
+};
+
+const updateOriginMarker = (lat, lng, label) => {
+    if (!liveMap) return;
+    
+    if (originMarker) {
+        originMarker.setMap(null);
+    }
+    
+    originMarker = new google.maps.Marker({
+        position: { lat, lng },
+        map: liveMap,
+        icon: {
+            path: google.maps.SymbolPath.CIRCLE,
+            scale: 10,
+            fillColor: "#00bcd4",
+            fillOpacity: 1,
+            strokeColor: "#ffffff",
+            strokeWeight: 2,
+        },
+        title: label || "Origin",
+    });
+
+    const infoWindow = new google.maps.InfoWindow({
+        content: `<strong>Origin</strong><br>${label || "Your location"}`,
+    });
+    originMarker.addListener("click", () => {
+        infoWindow.open(liveMap, originMarker);
+    });
+};
+
+const getOriginFromResults = lots => {
+    const first = lots?.[0];
+    if (first?.requestOriginLat && first?.requestOriginLng) {
+        return { lat: first.requestOriginLat, lng: first.requestOriginLng };
+    }
+    if (originLatInput?.value && originLngInput?.value) {
+        return {
+            lat: parseFloat(originLatInput.value),
+            lng: parseFloat(originLngInput.value)
+        };
+    }
+    return null;
+};
+
+const plotLotsOnMap = (city, lots) => {
+    if (!liveMap) return;
+    
+    // Clear existing parking markers
+    parkingMarkers.forEach(marker => marker.setMap(null));
+    parkingMarkers = [];
+
+    const bounds = new google.maps.LatLngBounds();
+    const origin = getOriginFromResults(lots);
+
+    if (origin?.lat && origin?.lng) {
+        updateOriginMarker(origin.lat, origin.lng, lastOriginLabel || city);
+        bounds.extend({ lat: origin.lat, lng: origin.lng });
+    }
+
+    lots.forEach(lot => {
+        if (!lot.lat || !lot.lng) return;
+        
+        const marker = new google.maps.Marker({
+            position: { lat: lot.lat, lng: lot.lng },
+            map: liveMap,
+            icon: {
+                path: google.maps.SymbolPath.CIRCLE,
+                scale: 8,
+                fillColor: "#4caf50",
+                fillOpacity: 1,
+                strokeColor: "#ffffff",
+                strokeWeight: 2,
+            },
+            title: lot.name,
+        });
+
+        const infoWindow = new google.maps.InfoWindow({
+            content: `
+                <div style="padding: 8px;">
+                    <strong>${lot.name}</strong><br />
+                    ${formatCurrency(lot.price)} / hr<br />
+                    ${lot.distanceText || ""} ${lot.durationText ? ` · ${lot.durationText}` : ""}
+                    <br /><br />
+                    <button onclick="showDirections(${lot.lat}, ${lot.lng}, '${lot.name.replace(/'/g, "\\'")}')" 
+                            style="background: #00bcd4; color: white; border: none; padding: 6px 12px; border-radius: 4px; cursor: pointer;">
+                        Get directions
+                    </button>
+                </div>
+            `,
+        });
+
+        marker.addListener("click", () => {
+            infoWindow.open(liveMap, marker);
+        });
+
+        parkingMarkers.push(marker);
+        bounds.extend({ lat: lot.lat, lng: lot.lng });
+    });
+
+    if (bounds.getNorthEast().lat() !== bounds.getSouthWest().lat()) {
+        liveMap.fitBounds(bounds, { padding: 50 });
+    } else if (origin?.lat && origin?.lng) {
+        liveMap.setCenter({ lat: origin.lat, lng: origin.lng });
+        liveMap.setZoom(13);
+    } else {
+        liveMap.setCenter({ lat: 25.2048, lng: 55.2708 });
+        liveMap.setZoom(11);
+    }
+};
+
+// Global function for directions button
+window.showDirections = (destLat, destLng, destName) => {
+    if (!directionsService || !directionsRenderer || !liveMap) return;
+    
+    const origin = getOriginFromResults([]);
+    if (!origin?.lat || !origin?.lng) {
+        alert("Please set an origin location first.");
+        return;
+    }
+
+    directionsService.route(
+        {
+            origin: { lat: origin.lat, lng: origin.lng },
+            destination: { lat: destLat, lng: destLng },
+            travelMode: google.maps.TravelMode.DRIVING,
+        },
+        (result, status) => {
+            if (status === "OK") {
+                directionsRenderer.setDirections(result);
+                activeDirectionsRoute = result;
+                
+                // Close all info windows
+                parkingMarkers.forEach(marker => {
+                    google.maps.event.clearInstanceListeners(marker);
+                });
+            } else {
+                console.error("Directions request failed:", status);
+                alert("Unable to calculate directions. Please try again.");
+            }
+        }
+    );
+};
+
+const updateOriginStatus = (city, originSource) => {
+    if (!locationStatus) return;
+    if (originSource === "user") {
+        locationStatus.textContent = "Live ETAs powered by your shared location.";
+        return;
+    }
+    if (originSource === "city") {
+        locationStatus.textContent = `Using ${city} city center for ETA. Share your location for hyper-local routing.`;
+        return;
+    }
+    locationStatus.textContent = "Share your location to unlock live travel times.";
+};
+
 // -----------------------------------------------------
 //  API HELPERS
 // -----------------------------------------------------
 const withTimeout = (ms, controller) =>
     setTimeout(() => controller.abort(), ms);
+
+const geocodeAddress = async (query, city) => {
+    if (!API_BASE_URL || !query) return null;
+    const params = new URLSearchParams({ text: query });
+    if (city) params.append("city", city);
+
+    try {
+        const res = await fetch(`${API_BASE_URL}/geocode?${params.toString()}`);
+        if (!res.ok) throw new Error("Geocode failed");
+        return await res.json();
+    } catch (err) {
+        console.warn("Geocoding failed:", err);
+        return null;
+    }
+};
+
+const ensureOriginCoordinates = async city => {
+    if (originLatInput?.value && originLngInput?.value) {
+        return true;
+    }
+    const query = originDisplayInput?.value?.trim();
+    if (!query) return false;
+    
+    // Try using Places Autocomplete first if available
+    if (autocomplete && window.google && window.google.maps) {
+        const geocoder = new google.maps.Geocoder();
+        return new Promise((resolve) => {
+            geocoder.geocode({ address: query, componentRestrictions: { country: "ae" } }, (results, status) => {
+                if (status === "OK" && results[0]) {
+                    const location = results[0].geometry.location;
+                    setOriginFields(location.lat(), location.lng(), results[0].formatted_address || query);
+                    resolve(true);
+                } else {
+                    // Fallback to backend geocoding
+                    geocodeAddress(query, city).then(result => {
+                        if (result?.lat && result?.lng) {
+                            setOriginFields(result.lat, result.lng, result.label || query);
+                            resolve(true);
+                        } else {
+                            if (locationStatus) {
+                                locationStatus.textContent = "Unable to resolve that location. Try a different landmark.";
+                            }
+                            resolve(false);
+                        }
+                    });
+                }
+            });
+        });
+    }
+    
+    // Fallback to backend geocoding
+    const result = await geocodeAddress(query, city);
+    if (result?.lat && result?.lng) {
+        setOriginFields(result.lat, result.lng, result.label || query);
+        return true;
+    }
+    if (locationStatus) {
+        locationStatus.textContent = "Unable to resolve that location. Try a different landmark.";
+    }
+    return false;
+};
 
 const fetchSuggestions = async payload => {
     if (!API_BASE_URL) return null;
@@ -539,6 +886,7 @@ const findParking = async event => {
         ? parseInt(durationEl.value, 10) || 1
         : 1;
 
+    await ensureOriginCoordinates(city);
     setLoading(true);
 
     const payload = {
@@ -548,6 +896,9 @@ const findParking = async event => {
         vehicle_type: vehicleType,
         duration_hours: durationHours
     };
+    if (originDisplayInput?.value?.trim()) {
+        payload.origin_text = originDisplayInput.value.trim();
+    }
     if (originLatInput?.value && originLngInput?.value) {
         payload.origin_lat = parseFloat(originLatInput.value);
         payload.origin_lng = parseFloat(originLngInput.value);
@@ -562,6 +913,8 @@ const findParking = async event => {
     renderResults(matches);
     updateStats(matches);
     updateMapNarrative(city, matches);
+    updateOriginStatus(city, matches[0]?.originSource);
+    plotLotsOnMap(city, matches);
 
     // dashboard side calls
     const [insights, timeline, statuses, dispatchMessages] = await Promise.all([
@@ -602,6 +955,13 @@ window.addEventListener("DOMContentLoaded", () => {
         "Syncing EV bay occupancy…",
         "Calibrating demand heatmap…"
     ]);
+
+    // Initialize Google Maps
+    if (window.google && window.google.maps) {
+        initGoogleMapsMap();
+    } else {
+        initGoogleMaps();
+    }
 
     findParking();          // run initial search
     setInterval(rotateDispatchFeed, 6000);
