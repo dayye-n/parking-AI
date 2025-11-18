@@ -3,3 +3,4 @@ uvicorn[standard]
 qdrant-client
 python-dotenv
 requests
+anthropic

@@ -22,6 +22,8 @@ from qdrant_client.models import (
     PayloadSchemaType,
 )
 
+from llm import request_opus_briefing, request_opus_chat
+
 # ---------------------------------------------------------
 # ENV + QDRANT CONFIG
 # ---------------------------------------------------------
@@ -112,6 +114,7 @@ class SuggestRequest(BaseModel):
     origin_lng: Optional[float] = None
     origin_text: Optional[str] = None
     sort: str = "best"  # Sort mode: best, distance, price, rating, congestion
+    preference_prompt: Optional[str] = None
 
 
 class SuggestResult(BaseModel):
@@ -141,6 +144,12 @@ class SuggestResult(BaseModel):
     origin_source: Optional[str] = None
     request_origin_lat: Optional[float] = None
     request_origin_lng: Optional[float] = None
+    ai_note: Optional[str] = None
+    ai_summary: Optional[str] = None
+    ai_confidence: Optional[int] = None
+    ai_priority: Optional[int] = None
+    ai_insights: Optional[List[str]] = None
+    ai_source: Optional[str] = None
 
 
 class GeocodeResponse(BaseModel):
@@ -170,6 +179,18 @@ class HealthStatus(BaseModel):
 
 class DispatchEvent(BaseModel):
     message: str
+
+
+class ChatMessage(BaseModel):
+    role: str
+    content: str
+
+
+class OpusChatRequest(BaseModel):
+    messages: List[ChatMessage]
+    city: Optional[str] = None
+    preference: Optional[str] = None
+    lot_ids: Optional[List[str]] = None
 
 
 # ---------------------------------------------------------
@@ -639,6 +660,26 @@ def health():
     return {"status": "ok"}
 
 
+@app.post("/opus-chat")
+def opus_chat(req: OpusChatRequest):
+    if not req.messages:
+        raise HTTPException(status_code=400, detail="messages_required")
+
+    context = {
+        "city": req.city,
+        "preference": req.preference,
+        "lots": req.lot_ids,
+    }
+    chat_payload = [
+        {"role": msg.role, "content": msg.content} for msg in req.messages
+    ]
+    reply = request_opus_chat(chat_payload, context=context)
+    if not reply:
+        raise HTTPException(status_code=503, detail="opus_unavailable")
+
+    return {"reply": reply}
+
+
 def apply_recommendation_scores(results: List[SuggestResult]) -> None:
     if not results:
         return
@@ -731,7 +772,110 @@ def suggest(req: SuggestRequest):
         if str(lot.id) in results_dict:
             sorted_results.append(results_dict[str(lot.id)])
     
-    return sorted_results[: req.results]
+    sorted_results = sorted_results[: req.results]
+
+    if sorted_results:
+        lot_snapshot = [
+            {
+                "id": entry.id,
+                "name": entry.name,
+                "city": entry.city,
+                "walking_time_minutes": entry.walking_time_minutes,
+                "covered": entry.covered,
+                "ev_support": entry.ev_support,
+                "amenities": entry.amenities,
+                "distance_text": entry.distance_text,
+                "duration_text": entry.duration_text,
+                "congestion_score": entry.congestion_score,
+                "recommendation_score": entry.recommendation_score,
+            }
+            for entry in sorted_results
+        ]
+        context = {
+            "city": req.city,
+            "prefer_covered": req.prefer_covered,
+            "vehicle_type": req.vehicle_type,
+            "duration_hours": req.duration_hours,
+            "sort": req.sort,
+        }
+        ai_feedback = request_opus_briefing(
+            req.preference_prompt,
+            lot_snapshot,
+            context=context,
+        )
+        if ai_feedback:
+            summary_text = ai_feedback.get("summary")
+            insights = ai_feedback.get("insights")
+            source = ai_feedback.get("source")
+            reranked_ids = ai_feedback.get("reranked_ids") or []
+            normalized_ids = [str(rid) for rid in reranked_ids if rid is not None]
+
+            notes = {
+                str(note.get("id")): note
+                for note in ai_feedback.get("lots", [])
+                if isinstance(note, dict) and note.get("id") is not None
+            }
+
+            priority_map = {}
+            for idx, rid in enumerate(normalized_ids, start=1):
+                priority_map[rid] = idx
+
+            def apply_ai_metadata(result: SuggestResult) -> None:
+                if summary_text:
+                    result.ai_summary = summary_text
+                if insights:
+                    result.ai_insights = insights
+                if source:
+                    result.ai_source = source
+
+                note = notes.get(str(result.id))
+                priority_value = None
+                if note:
+                    result.ai_note = note.get("note")
+                    priority_value = note.get("priority")
+                    confidence_boost = note.get("confidence")
+                    if confidence_boost is not None:
+                        try:
+                            confidence_value = int(confidence_boost)
+                        except (TypeError, ValueError):
+                            confidence_value = None
+                        if confidence_value is not None:
+                            result.ai_confidence = confidence_value
+                            if result.confidence:
+                                result.confidence = int(
+                                    min(99, max(result.confidence, confidence_value))
+                                )
+
+                if priority_value is None:
+                    priority_value = priority_map.get(str(result.id))
+
+                if priority_value is not None:
+                    try:
+                        result.ai_priority = int(priority_value)
+                    except (TypeError, ValueError):
+                        result.ai_priority = None
+
+            for res in sorted_results:
+                apply_ai_metadata(res)
+
+            if normalized_ids:
+                reordered: List[SuggestResult] = []
+                seen = set()
+                id_map = {str(r.id): r for r in sorted_results}
+                for rid in normalized_ids:
+                    match = id_map.get(rid)
+                    if match and match.id not in seen:
+                        reordered.append(match)
+                        seen.add(match.id)
+
+                for res in sorted_results:
+                    if res.id not in seen:
+                        reordered.append(res)
+                        seen.add(res.id)
+
+                sorted_results = reordered
+
+    return sorted_results
 
 
 @app.get("/geocode", response_model=GeocodeResponse)

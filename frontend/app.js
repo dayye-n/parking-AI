@@ -2,8 +2,6 @@
 //  CONFIG
 // -----------------------------------------------------
 const API_BASE_URL = "http://127.0.0.1:8000"; // or http://localhost:8000
-
-// Current sort mode (default: "best")
 let currentSortMode = "best";
 
 // -----------------------------------------------------
@@ -18,7 +16,6 @@ const fallbackLots = [
         lng: 55.2708,
         distance_text: "450 m",
         duration_text: "3 min walk",
-        price: 8,
         spaces: 27,
         rating: 4.8,
         type: "Covered",
@@ -33,7 +30,6 @@ const fallbackLots = [
         lng: 55.1389,
         distance_text: "1.1 km",
         duration_text: "4 min drive",
-        price: 5,
         spaces: 53,
         rating: 4.4,
         type: "Outdoor",
@@ -48,7 +44,6 @@ const fallbackLots = [
         lng: 54.3545,
         distance_text: "300 m",
         duration_text: "2 min walk",
-        price: 7,
         spaces: 18,
         rating: 4.6,
         type: "Premium",
@@ -63,7 +58,6 @@ const fallbackLots = [
         lng: 55.3813,
         distance_text: "650 m",
         duration_text: "4 min walk",
-        price: 4,
         spaces: 45,
         rating: 4.1,
         type: "Outdoor",
@@ -78,7 +72,6 @@ const fallbackLots = [
         lng: 55.1552,
         distance_text: "2.2 km",
         duration_text: "6 min drive",
-        price: 12,
         spaces: 12,
         rating: 4.9,
         type: "Premium",
@@ -93,7 +86,6 @@ const fallbackLots = [
         lng: 54.6034,
         distance_text: "900 m",
         duration_text: "5 min walk",
-        price: 9,
         spaces: 34,
         rating: 4.3,
         type: "Covered",
@@ -103,7 +95,6 @@ const fallbackLots = [
 ];
 
 const normalizeLot = (item, index = 0) => {
-    const price = item.price ?? item.price_per_hour ?? 0;
     const spaces =
         item.spaces ??
         item.open_spots ??
@@ -134,7 +125,6 @@ const normalizeLot = (item, index = 0) => {
         city: item.city,
         lat: item.lat,
         lng: item.lng,
-        price,
         spaces,
         rating,
         type,
@@ -147,7 +137,17 @@ const normalizeLot = (item, index = 0) => {
         requestOriginLat: item.request_origin_lat ?? null,
         requestOriginLng: item.request_origin_lng ?? null,
         recommendationScore: item.recommendation_score ?? null,
-        congestionScore: item.congestion_score ?? null
+        congestionScore: item.congestion_score ?? null,
+        aiNote: item.ai_note || item.aiNote || null,
+        aiSummary: item.ai_summary || item.aiSummary || null,
+        aiConfidence: item.ai_confidence ?? item.aiConfidence ?? null,
+        aiInsights: Array.isArray(item.ai_insights)
+            ? item.ai_insights
+            : Array.isArray(item.aiInsights)
+            ? item.aiInsights
+            : null,
+        aiPriority: item.ai_priority ?? item.aiPriority ?? null,
+        aiSource: item.ai_source || item.aiSource || null
     };
 };
 
@@ -223,6 +223,13 @@ const originLngInput     = document.getElementById("originLng");
 const originDisplayInput = document.getElementById("originDisplay");
 const useLocationBtn     = document.getElementById("useLocation");
 const locationStatus     = document.getElementById("locationStatus");
+const aiSummaryEl        = document.getElementById("aiSummary");
+const aiHighlightsEl     = document.getElementById("aiHighlights");
+const aiStatusTag        = document.getElementById("aiStatusTag");
+const preferenceInput    = document.getElementById("preferencePrompt");
+const aiChatLog          = document.getElementById("aiChatLog");
+const aiChatForm         = document.getElementById("aiChatForm");
+const aiChatInput        = document.getElementById("aiChatInput");
 
 let liveMap = null;
 let autocomplete = null;
@@ -232,6 +239,12 @@ let directionsService = null;
 let directionsRenderer = null;
 let lastOriginLabel = null;
 let activeDirectionsRoute = null;
+let aiChatHistory = [];
+let aiChatPrimed = false;
+let chatBusy = false;
+let lastAICity = null;
+let chatContextKey = "";
+let lastLotsSnapshot = [];
 
 const setOriginFields = (lat, lng, labelText) => {
     if (!originLatInput || !originLngInput) return;
@@ -300,7 +313,6 @@ if (useLocationBtn) {
 // -----------------------------------------------------
 //  UTILITIES
 // -----------------------------------------------------
-const formatCurrency = value => `${value.toFixed(0)} AED`;
 const getStars = rating => "★".repeat(Math.round(rating));
 
 const congestionLabel = (score) => {
@@ -346,6 +358,7 @@ const renderResults = lots => {
                             ${lot.distanceText ? ` · ${lot.distanceText}` : ""}
                         </p>
                     </div>
+                    ${lot.aiPriority ? `<span class="ai-rank-pill">Opus #${lot.aiPriority}</span>` : ""}
                 </div>
                 <div class="lot-card__meta">
                     <span>${getStars(lot.rating)} ${lot.rating.toFixed(1)}</span>
@@ -357,6 +370,7 @@ const renderResults = lots => {
                 <div class="amenities">
                     ${lot.amenities.map(item => `<span>${item}</span>`).join("")}
                 </div>
+                ${lot.aiNote ? `<div class="ai-note"><strong>Opus:</strong> ${lot.aiNote}</div>` : ""}
                 <div class="lot-card__footer">
                     <div class="lot-card__actions">
                         ${lot.directionsUrl ? `
@@ -469,6 +483,151 @@ const updateMapNarrative = (city, lots) => {
         `${topLot.name} trending ${avgConfidence.toFixed(0)}% confidence`;
     mapOverlaySubline.textContent =
         `${topLot.spaces} open bays available`;
+};
+
+const renderChatHistory = () => {
+    if (!aiChatLog) return;
+
+    if (!aiChatHistory.length) {
+        aiChatLog.innerHTML = `<div class="chat-tip">Ask Opus why these lots rank the way they do.</div>`;
+        return;
+    }
+
+    aiChatLog.innerHTML = aiChatHistory
+        .map(
+            msg => `
+            <div class="chat-bubble ${msg.role}">
+                ${msg.content}
+            </div>`
+        )
+        .join("");
+
+    if (chatBusy) {
+        aiChatLog.innerHTML += `<div class="chat-bubble assistant typing">Opus is thinking…</div>`;
+    }
+
+    aiChatLog.scrollTop = aiChatLog.scrollHeight;
+};
+
+const appendChatMessage = (role, content) => {
+    if (!content) return;
+    aiChatHistory.push({ role, content });
+    renderChatHistory();
+};
+
+const primeChatWithSummary = summary => {
+    if (!summary || aiChatPrimed) return;
+    appendChatMessage("assistant", summary);
+    aiChatPrimed = true;
+};
+
+const resetChatContext = (city, preferenceText) => {
+    const key = `${city || ""}::${preferenceText || ""}`;
+    if (key === chatContextKey) return;
+    chatContextKey = key;
+    aiChatHistory = [];
+    aiChatPrimed = false;
+    renderChatHistory();
+};
+
+const sendChatMessage = async message => {
+    if (!message || !API_BASE_URL) return;
+    appendChatMessage("user", message);
+    chatBusy = true;
+    renderChatHistory();
+
+    const payload = {
+        messages: aiChatHistory.map(item => ({
+            role: item.role,
+            content: item.content
+        })),
+        city: lastAICity,
+        preference: preferenceInput?.value?.trim() || "",
+        lot_ids: (lastLotsSnapshot || []).map(lot => String(lot.id))
+    };
+
+    try {
+        const res = await fetch(`${API_BASE_URL}/opus-chat`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(payload)
+        });
+        if (!res.ok) {
+            throw new Error(`Chat failed with status ${res.status}`);
+        }
+        const data = await res.json();
+        appendChatMessage("assistant", data.reply || "Opus replied without content.");
+    } catch (err) {
+        console.warn("Opus chat failed:", err);
+        appendChatMessage("assistant", "Opus is offline right now. Try again shortly.");
+    } finally {
+        chatBusy = false;
+        renderChatHistory();
+    }
+};
+
+const updateAIBriefing = (lots, preferenceText = "") => {
+    if (!aiSummaryEl || !aiHighlightsEl) return;
+
+    const trimmedPreference = preferenceText?.trim() || "";
+    const notes = lots.filter(lot => lot.aiNote);
+    const summaryHolder = lots.find(lot => lot.aiSummary);
+    const insightsHolder = lots.find(
+        lot => Array.isArray(lot.aiInsights) && lot.aiInsights.length
+    );
+
+    if (!lots.length && !trimmedPreference) {
+        aiSummaryEl.textContent = "Share trip context above to unlock Opus guidance.";
+        if (aiStatusTag) aiStatusTag.textContent = "Idle";
+        aiHighlightsEl.innerHTML = `<li>Waiting for your next query.</li>`;
+        return;
+    }
+
+    if (summaryHolder?.aiSummary) {
+        aiSummaryEl.textContent = summaryHolder.aiSummary;
+        const label = summaryHolder.aiSource === "cache"
+            ? "Cached"
+            : summaryHolder.aiSource === "fallback"
+            ? "Offline"
+            : "Opus Live";
+        if (aiStatusTag) aiStatusTag.textContent = label;
+        primeChatWithSummary(summaryHolder.aiSummary);
+    } else if (trimmedPreference) {
+        aiSummaryEl.textContent = "Opus is analyzing your preference against live lots.";
+        if (aiStatusTag) aiStatusTag.textContent = "Thinking";
+    } else {
+        aiSummaryEl.textContent = "Add a note above to brief Opus about this ride.";
+        if (aiStatusTag) aiStatusTag.textContent = "Idle";
+    }
+
+    if (insightsHolder?.aiInsights?.length) {
+        aiHighlightsEl.innerHTML = insightsHolder.aiInsights
+            .slice(0, 3)
+            .map(
+                insight => `
+                <li>
+                    <strong>Opus insight</strong>
+                    <span>${insight}</span>
+                </li>`
+            )
+            .join("");
+        return;
+    }
+
+    if (notes.length) {
+        aiHighlightsEl.innerHTML = notes
+            .slice(0, 3)
+            .map(
+                lot => `
+                <li>
+                    <strong>${lot.name}</strong>
+                    <span>${lot.aiNote}</span>
+                </li>`
+            )
+            .join("");
+    } else {
+        aiHighlightsEl.innerHTML = `<li>${trimmedPreference ? "Listening for Opus response…" : "Opus is calibrating next insight."}</li>`;
+    }
 };
 
 const updateHeroFeed = messages => {
@@ -651,7 +810,6 @@ const plotLotsOnMap = (city, lots) => {
             content: `
                 <div style="padding: 8px;">
                     <strong>${lot.name}</strong><br />
-                    ${formatCurrency(lot.price)} / hr<br />
                     ${lot.distanceText || ""} ${lot.durationText ? ` · ${lot.durationText}` : ""}
                     <br /><br />
                     <button onclick="showDirections(${lot.lat}, ${lot.lng}, '${lot.name.replace(/'/g, "\\'")}')" 
@@ -685,7 +843,7 @@ const plotLotsOnMap = (city, lots) => {
 window.showDirections = (destLat, destLng, destName) => {
     if (!directionsService || !directionsRenderer || !liveMap) return;
     
-    const origin = getOriginFromResults([]);
+    const origin = getOriginFromResults(lastLotsSnapshot);
     if (!origin?.lat || !origin?.lng) {
         alert("Please set an origin location first.");
         return;
@@ -706,12 +864,24 @@ window.showDirections = (destLat, destLng, destName) => {
                 parkingMarkers.forEach(marker => {
                     google.maps.event.clearInstanceListeners(marker);
                 });
+
+                const mapPanel = document.getElementById("mapPreview");
+                if (mapPanel?.scrollIntoView) {
+                    mapPanel.scrollIntoView({ behavior: "auto", block: "center" });
+                }
             } else {
                 console.error("Directions request failed:", status);
                 alert("Unable to calculate directions. Please try again.");
             }
         }
     );
+};
+
+const handleSortChange = mode => {
+    currentSortMode = mode;
+    if (form) {
+        form.dispatchEvent(new Event("submit"));
+    }
 };
 
 const updateOriginStatus = (city, originSource) => {
@@ -801,7 +971,6 @@ const fetchSuggestions = async payload => {
     const timeout = withTimeout(3500, controller);
 
     try {
-        // Add sort parameter to payload
         const requestPayload = {
             ...payload,
             sort: currentSortMode
@@ -887,6 +1056,7 @@ const findParking = async event => {
     // Optional: read vehicle + duration if the elements exist
     const vehicleEl = document.getElementById("vehicle");
     const durationEl = document.getElementById("duration");
+    const preferenceText = preferenceInput?.value?.trim() || "";
 
     const vehicleType = vehicleEl
         ? vehicleEl.value.toLowerCase() === "ev"
@@ -898,8 +1068,13 @@ const findParking = async event => {
         ? parseInt(durationEl.value, 10) || 1
         : 1;
 
+    resetChatContext(city, preferenceText);
+    lastAICity = city;
+    lastLotsSnapshot = [];
+
     await ensureOriginCoordinates(city);
     setLoading(true);
+    updateAIBriefing([], preferenceText);
 
     const payload = {
         city,
@@ -915,6 +1090,9 @@ const findParking = async event => {
         payload.origin_lat = parseFloat(originLatInput.value);
         payload.origin_lng = parseFloat(originLngInput.value);
     }
+    if (preferenceText) {
+        payload.preference_prompt = preferenceText;
+    }
 
     const apiResults = await fetchSuggestions(payload);
     const matches =
@@ -926,6 +1104,8 @@ const findParking = async event => {
     updateStats(matches);
     updateMapNarrative(city, matches);
     updateOriginStatus(city, matches[0]?.originSource);
+    updateAIBriefing(matches, preferenceText);
+    lastLotsSnapshot = matches;
     plotLotsOnMap(city, matches);
 
     // dashboard side calls
@@ -943,31 +1123,15 @@ const findParking = async event => {
 };
 
 // -----------------------------------------------------
-//  SORT BUTTON HANDLERS
-// -----------------------------------------------------
-const handleSortChange = (mode) => {
-    currentSortMode = mode;
-    // Trigger a new search with the updated sort mode
-    if (form) {
-        form.dispatchEvent(new Event("submit"));
-    }
-};
-
-// -----------------------------------------------------
 //  BOOTSTRAP
 // -----------------------------------------------------
 form.addEventListener("submit", findParking);
 
 window.addEventListener("DOMContentLoaded", () => {
-    // Wire up sort buttons
-    const sortBestBtn = document.getElementById("sortBest");
     const sortDistanceBtn = document.getElementById("sortDistance");
     const sortRatingBtn = document.getElementById("sortRating");
     const sortCongestionBtn = document.getElementById("sortCongestion");
 
-    if (sortBestBtn) {
-        sortBestBtn.addEventListener("click", () => handleSortChange("best"));
-    }
     if (sortDistanceBtn) {
         sortDistanceBtn.addEventListener("click", () => handleSortChange("distance"));
     }
@@ -991,6 +1155,7 @@ window.addEventListener("DOMContentLoaded", () => {
         "Syncing EV bay occupancy…",
         "Calibrating demand heatmap…"
     ]);
+    updateAIBriefing([], "");
 
     // Initialize Google Maps
     if (window.google && window.google.maps) {
@@ -1001,4 +1166,15 @@ window.addEventListener("DOMContentLoaded", () => {
 
     findParking();          // run initial search
     setInterval(rotateDispatchFeed, 6000);
+
+    renderChatHistory();
+    if (aiChatForm) {
+        aiChatForm.addEventListener("submit", event => {
+            event.preventDefault();
+            const text = aiChatInput?.value?.trim();
+            if (!text) return;
+            aiChatInput.value = "";
+            sendChatMessage(text);
+        });
+    }
 });

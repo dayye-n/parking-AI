@@ -7,6 +7,7 @@ Branch `feature/parkpilot-ui` turns the simple parking finder into a polished op
 - **Qdrant-backed FastAPI** – `/suggest`, `/insights`, `/timeline`, `/status-board`, and `/dispatch` endpoints hydrate the UI using seeded Dubai/Abu Dhabi/Sharjah zones.
 - **Smart fallbacks** – Frontend mocks mirror the API payloads so the experience stays interactive even when Qdrant isn’t running.
 - **Hackathon-ready copy + stats** – Trust badges, telemetry blurbs, and animated feeds sell the story to judges in seconds.
+- **Claude Opus co-pilot** – Anthropics-powered re-ranking, instant summaries, and an embedded chat so judges can interrogate the AI’s reasoning live.
 
 ## Project Structure
 ```
@@ -21,6 +22,9 @@ frontend/  Static dashboard (index.html, style.css, app.js)
   ```env
   QDRANT_URL=http://localhost:6333
   QDRANT_API_KEY=
+  GOOGLE_MAPS_API_KEY=
+  ANTHROPIC_API_KEY=
+  ANTHROPIC_MODEL=claude-3-opus-20240229
   ```
 
 ## Getting Started
@@ -54,6 +58,7 @@ frontend/  Static dashboard (index.html, style.css, app.js)
 | GET    | `/timeline`     | Upcoming operational events            |
 | GET    | `/status-board` | Telemetry health statuses              |
 | GET    | `/dispatch`     | Fleet/valet feed messages              |
+| POST   | `/opus-chat`    | Conversational follow-ups with Opus    |
 
 ## Demo Flow
 1. Choose a city, arrival window, duration, vehicle type, and toggle “Prefer covered parking”.
@@ -64,3 +69,8 @@ frontend/  Static dashboard (index.html, style.css, app.js)
 - Pipe real telemetry into Qdrant instead of the seeded zones.
 - Replace fallback arrays with live responses once the backend is deployed.
 - Add booking/heatmap endpoints (we already prototyped them earlier) when ready.
+
+## Opus Copilot Notes
+- `frontend/index.html` exposes a “Trip notes for Opus” field and a chat widget so you can interrogate Claude mid-demo.
+- Backend responses always include Opus annotations; results are cached in-memory and appended to `backend/data/opus_logs.jsonl` for later analysis.
+- If Opus is offline, the server falls back to heuristic summaries so the UI never stalls.
