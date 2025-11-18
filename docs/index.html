@@ -68,7 +68,7 @@
                 <form id="searchForm" class="search-form">
                     <label>
                         City
-                        <select id="city" required>
+                        <select id="city-select" required>
                             <option value="Dubai">Dubai</option>
                             <option value="Abu Dhabi">Abu Dhabi</option>
                             <option value="Sharjah">Sharjah</option>
@@ -76,7 +76,7 @@
                     </label>
                     <label>
                         Duration
-                        <select id="duration">
+                        <select id="duration-select">
                             <option value="1">1 hr</option>
                             <option value="2">2 hrs</option>
                             <option value="4">4 hrs</option>
@@ -85,14 +85,14 @@
                     </label>
                     <label>
                         Vehicle
-                        <select id="vehicle">
+                        <select id="vehicle-select">
                             <option value="standard">Standard</option>
                         </select>
                     </label>
                     <label class="origin-field">
                         Origin for directions
                         <div class="location-input">
-                            <input type="text" id="originDisplay" placeholder="Type a location (e.g., Dubai Festival City)" autocomplete="off" />
+                            <input type="text" id="origin-input" placeholder="Type a location (e.g., Dubai Festival City)" autocomplete="off" />
                             <button type="button" class="ghost" id="useLocation">Use my location</button>
                         </div>
                         <span class="location-status" id="locationStatus">Share your location or type an address to unlock live travel times.</span>
@@ -100,10 +100,10 @@
                         <input type="hidden" id="originLng" />
                     </label>
                     <label class="switch">
-                        <input type="checkbox" id="preferCovered" checked />
+                        <input type="checkbox" id="prefer-covered" checked />
                         <span>Prefer covered parking</span>
                     </label>
-                    <button type="submit" class="primary">Search availability</button>
+                    <button type="submit" id="search-btn" class="primary">Search availability</button>
                 </form>
             </div>
             <div class="panel map-panel">
@@ -154,7 +154,7 @@
     </footer>
 </div>
 <script>
-    window.API_BASE_URL = 'http://localhost:8000';
+    window.API_BASE_URL = 'https://parking-ai.onrender.com';
 </script>
 <script src="app.js"></script>
 </body>

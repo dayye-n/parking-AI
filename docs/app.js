@@ -7,6 +7,31 @@ const API_BASE_URL = "https://parking-ai.onrender.com";
 let currentSortMode = "best";
 
 // -----------------------------------------------------
+//  BACKEND HELPER
+// -----------------------------------------------------
+// Call FastAPI backend /suggest. On error, fall back to local mock data.
+async function fetchFromBackend(formState) {
+  try {
+    const response = await fetch(`${API_BASE_URL}/suggest`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(formState),
+    });
+
+    if (!response.ok) {
+      throw new Error("Backend error: " + response.status);
+    }
+
+    const data = await response.json();
+    // Backend returns an array directly, or check for nested structure
+    return Array.isArray(data) ? data : (data.lots || data.results || fallbackLots);
+  } catch (err) {
+    console.error("Backend failed, using fallback lots:", err);
+    return fallbackLots;
+  }
+}
+
+// -----------------------------------------------------
 //  FALLBACK MOCK DATA (used if API fails)
 // -----------------------------------------------------
 const fallbackLots = [
@@ -220,7 +245,7 @@ const mapOverlaySubline  = document.getElementById("mapOverlaySubline");
 const heroFeedList       = document.querySelector("#liveFeed ul");
 const originLatInput     = document.getElementById("originLat");
 const originLngInput     = document.getElementById("originLng");
-const originDisplayInput = document.getElementById("originDisplay");
+const originDisplayInput = document.getElementById("origin-input");
 const useLocationBtn     = document.getElementById("useLocation");
 const locationStatus     = document.getElementById("locationStatus");
 
@@ -526,7 +551,7 @@ const initGoogleMapsMap = () => {
 
     // Initialize Places Autocomplete
     if (originDisplayInput && window.google.maps.places) {
-        const citySelect = document.getElementById("city");
+        const citySelect = document.getElementById("city-select");
         const getCityBounds = () => {
             const city = citySelect?.value || "Dubai";
             const bounds = {
@@ -881,52 +906,61 @@ const filterFallbackLots = city => {
 const findParking = async event => {
     event?.preventDefault();
 
-    const city = document.getElementById("city").value;
-    const preferCovered = document.getElementById("preferCovered").checked;
+    // 1) Read current form values
+    const city = document.getElementById("city-select").value;
+    const duration = document.getElementById("duration-select").value;
+    const vehicle = document.getElementById("vehicle-select").value;
+    const origin = document.getElementById("origin-input").value;
+    const preferCovered = document.getElementById("prefer-covered").checked;
 
-    // Optional: read vehicle + duration if the elements exist
-    const vehicleEl = document.getElementById("vehicle");
-    const durationEl = document.getElementById("duration");
+    // Convert duration text to hours (adjust to match your options)
+    let durationHours = 1;
+    if (duration === "2") durationHours = 2;
+    else if (duration === "4") durationHours = 4;
+    else if (duration === "8") durationHours = 8;
 
-    const vehicleType = vehicleEl
-        ? vehicleEl.value.toLowerCase() === "ev"
-            ? "ev"
-            : "standard"
-        : "standard";
-
-    const durationHours = durationEl
-        ? parseInt(durationEl.value, 10) || 1
-        : 1;
-
-    await ensureOriginCoordinates(city);
-    setLoading(true);
-
-    const payload = {
+    const formState = {
         city,
         results: 6,
+        duration_hours: durationHours,
+        vehicle_type: vehicle,
         prefer_covered: preferCovered,
-        vehicle_type: vehicleType,
-        duration_hours: durationHours
+        sort: currentSortMode,
     };
-    if (originDisplayInput?.value?.trim()) {
-        payload.origin_text = originDisplayInput.value.trim();
+
+    // Add origin if provided
+    if (origin?.trim()) {
+        formState.origin_text = origin.trim();
     }
     if (originLatInput?.value && originLngInput?.value) {
-        payload.origin_lat = parseFloat(originLatInput.value);
-        payload.origin_lng = parseFloat(originLngInput.value);
+        formState.origin_lat = parseFloat(originLatInput.value);
+        formState.origin_lng = parseFloat(originLngInput.value);
     }
 
-    const apiResults = await fetchSuggestions(payload);
-    const matches =
-        apiResults && apiResults.length
-            ? apiResults
-            : filterFallbackLots(city);
+    // 2) Show loading state
+    const searchBtn = document.getElementById("search-btn");
+    if (searchBtn) {
+        searchBtn.disabled = true;
+        searchBtn.textContent = "Searching…";
+    }
+    setLoading(true);
 
-    renderResults(matches);
-    updateStats(matches);
-    updateMapNarrative(city, matches);
-    updateOriginStatus(city, matches[0]?.originSource);
-    plotLotsOnMap(city, matches);
+    // 3) Fetch lots from backend (with automatic fallback)
+    const lots = await fetchFromBackend(formState);
+    const normalizedLots = lots.map((item, index) => normalizeLot(item, index));
+
+    // 4) Render results with existing UI function
+    renderResults(normalizedLots);
+    updateStats(normalizedLots);
+    updateMapNarrative(city, normalizedLots);
+    updateOriginStatus(city, normalizedLots[0]?.originSource);
+    plotLotsOnMap(city, normalizedLots);
+
+    // 5) Reset button state
+    if (searchBtn) {
+        searchBtn.disabled = false;
+        searchBtn.textContent = "Search availability";
+    }
 
     // dashboard side calls
     const [insights, timeline, statuses, dispatchMessages] = await Promise.all([
@@ -956,7 +990,13 @@ const handleSortChange = (mode) => {
 // -----------------------------------------------------
 //  BOOTSTRAP
 // -----------------------------------------------------
-form.addEventListener("submit", findParking);
+const searchBtn = document.getElementById("search-btn");
+if (searchBtn) {
+    searchBtn.addEventListener("click", findParking);
+}
+if (form) {
+    form.addEventListener("submit", findParking);
+}
 
 window.addEventListener("DOMContentLoaded", () => {
     // Wire up sort buttons
