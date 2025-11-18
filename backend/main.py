@@ -634,6 +634,11 @@ def startup() -> None:
 # ENDPOINTS
 # ---------------------------------------------------------
 
+@app.get("/")
+def root():
+    return {"status": "ok", "message": "parking-ai backend running"}
+
+
 @app.get("/health")
 def health():
     return {"status": "ok"}
