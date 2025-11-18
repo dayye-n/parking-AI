@@ -1,6 +1,7 @@
 import json
 import os
 from datetime import datetime
+from enum import Enum
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
@@ -80,6 +81,27 @@ class ParkingZone(BaseModel):
     amenities: Optional[List[str]] = None
 
 
+class SortMode(str, Enum):
+    """Sorting modes for parking lots."""
+    BEST = "best"
+    DISTANCE = "distance"
+    PRICE = "price"
+    RATING = "rating"
+    LOW_CONGESTION = "congestion"
+
+
+class ParkingLot(BaseModel):
+    """Standardized parking lot model for ranking and sorting."""
+    id: str
+    name: str
+    lat: float
+    lng: float
+    distance_meters: float
+    price_per_hour: float
+    rating: float  # 0-5
+    congestion_score: float  # 0-1 (0 = empty, 1 = very crowded)
+
+
 class SuggestRequest(BaseModel):
     city: str
     results: int = 6
@@ -89,6 +111,7 @@ class SuggestRequest(BaseModel):
     origin_lat: Optional[float] = None
     origin_lng: Optional[float] = None
     origin_text: Optional[str] = None
+    sort: str = "best"  # Sort mode: best, distance, price, rating, congestion
 
 
 class SuggestResult(BaseModel):
@@ -284,6 +307,26 @@ def clamp(value: float, *, min_value: float = 0.0, max_value: float = 1.0) -> fl
     return max(min_value, min(max_value, value))
 
 
+def haversine_distance(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
+    """
+    Calculate the great circle distance between two points on Earth (in meters).
+    Uses the Haversine formula.
+    """
+    from math import radians, sin, cos, sqrt, atan2
+    
+    R = 6371000  # Earth radius in meters
+    
+    lat1_rad = radians(lat1)
+    lat2_rad = radians(lat2)
+    delta_lat = radians(lat2 - lat1)
+    delta_lon = radians(lon2 - lon1)
+    
+    a = sin(delta_lat / 2) ** 2 + cos(lat1_rad) * cos(lat2_rad) * sin(delta_lon / 2) ** 2
+    c = 2 * atan2(sqrt(a), sqrt(1 - a))
+    
+    return R * c
+
+
 def geocode_text(query: str, city: Optional[str] = None) -> Optional[Tuple[float, float, str]]:
     if not query or not GOOGLE_MAPS_API_KEY:
         return None
@@ -421,6 +464,9 @@ def enrich_with_distance_data(
     # Always provide a directions URL even without Google Distance Matrix
     for result in results:
         result.directions_url = build_directions_url(origin_lat, origin_lng, result.lat, result.lng)
+        # Calculate fallback distance using Haversine if not already set
+        if result.distance_meters is None and origin_lat is not None and origin_lng is not None:
+            result.distance_meters = int(haversine_distance(origin_lat, origin_lng, result.lat, result.lng))
 
     if origin_lat is None or origin_lng is None or not GOOGLE_MAPS_API_KEY:
         return
@@ -477,6 +523,89 @@ def enrich_with_distance_data(
             if traffic_val:
                 result.travel_time_minutes = round(traffic_val / 60, 2)
                 result.duration_text = result.duration_in_traffic_text or result.duration_text
+
+
+# ---------------------------------------------------------
+# RANKING + SORTING
+# ---------------------------------------------------------
+
+def best_score(lot: ParkingLot) -> float:
+    """
+    Calculate BEST overall score (lower is better).
+    Combines distance, congestion, price, and rating.
+    """
+    distance_score = min(lot.distance_meters / 2000.0, 1.0)  # 0-2km normalized
+    price_score = min(lot.price_per_hour / 30.0, 1.0)  # 0-30 AED/hr normalized
+    rating_score = 1 - min(lot.rating / 5.0, 1.0)  # 5★ -> 0 (inverted, lower is better)
+    congestion_score = max(0.0, min(lot.congestion_score, 1.0))
+    
+    return (
+        0.4 * distance_score +
+        0.3 * congestion_score +
+        0.2 * price_score +
+        0.1 * rating_score
+    )
+
+
+def sort_lots(lots: List[ParkingLot], mode: SortMode) -> List[ParkingLot]:
+    """
+    Sort parking lots by the specified mode.
+    """
+    if mode == SortMode.DISTANCE:
+        return sorted(lots, key=lambda x: x.distance_meters)
+    if mode == SortMode.PRICE:
+        return sorted(lots, key=lambda x: x.price_per_hour)
+    if mode == SortMode.RATING:
+        return sorted(lots, key=lambda x: x.rating, reverse=True)
+    if mode == SortMode.LOW_CONGESTION:
+        return sorted(lots, key=lambda x: x.congestion_score)
+    # Default: BEST
+    return sorted(lots, key=best_score)
+
+
+def suggest_result_to_parking_lot(result: SuggestResult) -> ParkingLot:
+    """
+    Convert SuggestResult to ParkingLot for ranking/sorting.
+    Generates defaults for missing fields.
+    """
+    # Extract or calculate distance
+    if result.distance_meters is not None:
+        distance = float(result.distance_meters)
+    elif result.request_origin_lat is not None and result.request_origin_lng is not None:
+        # Calculate straight-line distance using Haversine formula
+        distance = haversine_distance(
+            result.request_origin_lat,
+            result.request_origin_lng,
+            result.lat,
+            result.lng
+        )
+    else:
+        # Fallback: use a large default distance
+        distance = 10000.0
+    
+    # Extract or generate price
+    price = float(result.price_per_hour) if result.price_per_hour is not None else 10.0
+    
+    # Generate rating from confidence or use default
+    # Confidence is 55-98, map to 3.5-5.0 rating
+    if result.confidence is not None:
+        rating = 3.5 + (result.confidence - 55) / 43.0 * 1.5  # Map 55-98 to 3.5-5.0
+    else:
+        rating = 4.0  # Default rating
+    
+    # Extract or generate congestion
+    congestion = float(result.congestion_score) if result.congestion_score is not None else 0.5
+    
+    return ParkingLot(
+        id=str(result.id),
+        name=result.name,
+        lat=result.lat,
+        lng=result.lng,
+        distance_meters=distance,
+        price_per_hour=price,
+        rating=rating,
+        congestion_score=congestion,
+    )
 
 
 # ---------------------------------------------------------
@@ -581,8 +710,28 @@ def suggest(req: SuggestRequest):
 
     enrich_with_distance_data(results, origin_lat, origin_lng)
     apply_recommendation_scores(results)
-    results.sort(key=lambda r: r.recommendation_score or 0, reverse=True)
-    return results[: req.results]
+    
+    # Apply ranking and sorting
+    try:
+        sort_mode = SortMode(req.sort.lower()) if req.sort else SortMode.BEST
+    except ValueError:
+        sort_mode = SortMode.BEST  # Fallback to BEST for invalid values
+    
+    # Convert to ParkingLot for sorting
+    parking_lots = [suggest_result_to_parking_lot(r) for r in results]
+    sorted_lots = sort_lots(parking_lots, sort_mode)
+    
+    # Create a mapping to preserve original order and reorder results
+    lot_map = {lot.id: lot for lot in sorted_lots}
+    results_dict = {str(r.id): r for r in results}
+    
+    # Reorder results based on sorted lots
+    sorted_results = []
+    for lot in sorted_lots:
+        if str(lot.id) in results_dict:
+            sorted_results.append(results_dict[str(lot.id)])
+    
+    return sorted_results[: req.results]
 
 
 @app.get("/geocode", response_model=GeocodeResponse)

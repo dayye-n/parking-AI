@@ -24,8 +24,9 @@
             <a href="#footer">Partners</a>
         </nav>
         <div class="header-actions">
-            <button class="ghost">View tech stack</button>
-            <button class="primary">Request pilot</button>
+            <a href="tech-stack.html" target="_blank" rel="noopener noreferrer" style="text-decoration: none;">
+                <button class="ghost">View tech stack</button>
+            </a>
         </div>
     </header>
 
@@ -37,10 +38,6 @@
                 Google Maps scans nearby curb and garage zones, Qdrant remembers multimodal congestion, imagery, and pricing signals,
                 and an LLM agent balances safety, walking distance, and cost so drivers stop circling and cities cut emissions.
             </p>
-            <div class="actions">
-                <button class="primary large">Plan my arrival</button>
-                <button class="secondary-btn">Explore the stack</button>
-            </div>
             <ul class="hero__stats">
                 <li>
                     <h3>Google Maps API</h3>
@@ -78,10 +75,6 @@
                         </select>
                     </label>
                     <label>
-                        Arrival window
-                        <input type="datetime-local" id="arrival" required />
-                    </label>
-                    <label>
                         Duration
                         <select id="duration">
                             <option value="1">1 hr</option>
@@ -112,15 +105,10 @@
                     </label>
                     <button type="submit" class="primary">Search availability</button>
                 </form>
-                <div class="micro-info">
-                    <p>?? Last telemetry sync <strong>12 sec ago</strong></p>
-                    <p>? Demand surge detected around <strong>Expo City</strong></p>
-                </div>
             </div>
             <div class="panel map-panel">
                 <div class="map-header">
-                    <h3>City heatmap</h3>
-                    <button class="ghost" type="button">Re-center</button>
+                    <h3>Map</h3>
                 </div>
                 <div class="map" id="mapPreview">
                     <div class="pulse-marker" style="top:35%;left:55%"></div>
@@ -129,20 +117,6 @@
                         <p id="mapOverlayLabel">Occupancy trend</p>
                         <h4 id="mapOverlayHeadline">Down 8% in last 15 minutes</h4>
                         <span id="mapOverlaySubline">Optimized routing reduced congestion near Dubai Mall</span>
-                    </div>
-                </div>
-                <div class="map-metrics">
-                    <div>
-                        <p>EV chargers</p>
-                        <strong>134 active</strong>
-                    </div>
-                    <div>
-                        <p>Sensor uptime</p>
-                        <strong>99.2%</strong>
-                    </div>
-                    <div>
-                        <p>Tow risk</p>
-                        <strong>Low</strong>
                     </div>
                 </div>
             </div>
@@ -155,9 +129,10 @@
                     <h2>Available lots & directions</h2>
                 </div>
                 <div class="filter-chips">
-                    <button class="ghost" type="button">Sort by proximity</button>
-                    <button class="ghost" type="button">Sort by rating</button>
-                    <button class="ghost" type="button">Lowest price</button>
+                    <button class="ghost" type="button" id="sortBest">Best overall</button>
+                    <button class="ghost" type="button" id="sortDistance">Sort by proximity</button>
+                    <button class="ghost" type="button" id="sortRating">Sort by rating</button>
+                    <button class="ghost" type="button" id="sortCongestion">Least crowded</button>
                 </div>
             </div>
             <div id="results" class="results__list">

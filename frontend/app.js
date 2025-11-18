@@ -3,6 +3,9 @@
 // -----------------------------------------------------
 const API_BASE_URL = "http://127.0.0.1:8000"; // or http://localhost:8000
 
+// Current sort mode (default: "best")
+let currentSortMode = "best";
+
 // -----------------------------------------------------
 //  FALLBACK MOCK DATA (used if API fails)
 // -----------------------------------------------------
@@ -143,7 +146,8 @@ const normalizeLot = (item, index = 0) => {
         originSource: item.origin_source || item.originSource || null,
         requestOriginLat: item.request_origin_lat ?? null,
         requestOriginLng: item.request_origin_lng ?? null,
-        recommendationScore: item.recommendation_score ?? null
+        recommendationScore: item.recommendation_score ?? null,
+        congestionScore: item.congestion_score ?? null
     };
 };
 
@@ -299,6 +303,14 @@ if (useLocationBtn) {
 const formatCurrency = value => `${value.toFixed(0)} AED`;
 const getStars = rating => "★".repeat(Math.round(rating));
 
+const congestionLabel = (score) => {
+    // Convert congestion score (0-1) to human-friendly label
+    if (score === null || score === undefined) return "People: Unknown";
+    if (score < 0.3) return "People: Low";
+    if (score < 0.7) return "People: Moderate";
+    return "People: High";
+};
+
 const setLoading = isLoading => {
     if (!isLoading || !resultsEl) return;
     resultsEl.innerHTML = `
@@ -334,22 +346,18 @@ const renderResults = lots => {
                             ${lot.distanceText ? ` · ${lot.distanceText}` : ""}
                         </p>
                     </div>
-                    <span class="badge">${lot.spaces} open</span>
                 </div>
                 <div class="lot-card__meta">
                     <span>${getStars(lot.rating)} ${lot.rating.toFixed(1)}</span>
                     ${lot.durationText ? `<span>${lot.durationText}</span>` : ""}
                     ${lot.distanceText ? `<span>${lot.distanceText}</span>` : ""}
                     <span>${lot.confidence}% confidence</span>
+                    ${lot.congestionScore !== null && lot.congestionScore !== undefined ? `<span>${congestionLabel(lot.congestionScore)}</span>` : ""}
                 </div>
                 <div class="amenities">
                     ${lot.amenities.map(item => `<span>${item}</span>`).join("")}
                 </div>
                 <div class="lot-card__footer">
-                    <div class="price">
-                        ${formatCurrency(lot.price)}
-                        <small>/hr</small>
-                    </div>
                     <div class="lot-card__actions">
                         ${lot.directionsUrl ? `
                             <a class="ghost-link" href="${lot.directionsUrl}" target="_blank" rel="noopener">
@@ -375,12 +383,11 @@ const updateStats = lots => {
     }
 
     const totalSpaces = lots.reduce((sum, lot) => sum + (lot.spaces || 0), 0);
-    const avgPrice = lots.reduce((sum, lot) => sum + (lot.price || 0), 0) / lots.length;
     const avgConfidence =
         lots.reduce((sum, lot) => sum + (lot.confidence || 0), 0) / lots.length;
 
     statAvailability.textContent = totalSpaces;
-    statRate.textContent = `${avgPrice.toFixed(1)} AED`;
+    if (statRate) statRate.textContent = "—";
     statConfidence.textContent = `${avgConfidence.toFixed(0)}%`;
 };
 
@@ -456,13 +463,12 @@ const updateMapNarrative = (city, lots) => {
     }
 
     const avgConfidence = lots.reduce((sum, lot) => sum + lot.confidence, 0) / lots.length;
-    const avgPrice = lots.reduce((sum, lot) => sum + lot.price, 0) / lots.length;
     const topLot = lots[0];
 
     mapOverlayHeadline.textContent =
         `${topLot.name} trending ${avgConfidence.toFixed(0)}% confidence`;
     mapOverlaySubline.textContent =
-        `${topLot.spaces} open bays - ${formatCurrency(avgPrice)} / hr average.`;
+        `${topLot.spaces} open bays available`;
 };
 
 const updateHeroFeed = messages => {
@@ -795,10 +801,16 @@ const fetchSuggestions = async payload => {
     const timeout = withTimeout(3500, controller);
 
     try {
+        // Add sort parameter to payload
+        const requestPayload = {
+            ...payload,
+            sort: currentSortMode
+        };
+
         const res = await fetch(`${API_BASE_URL}/suggest`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(payload),
+            body: JSON.stringify(requestPayload),
             signal: controller.signal
         });
         clearTimeout(timeout);
@@ -931,16 +943,40 @@ const findParking = async event => {
 };
 
 // -----------------------------------------------------
+//  SORT BUTTON HANDLERS
+// -----------------------------------------------------
+const handleSortChange = (mode) => {
+    currentSortMode = mode;
+    // Trigger a new search with the updated sort mode
+    if (form) {
+        form.dispatchEvent(new Event("submit"));
+    }
+};
+
+// -----------------------------------------------------
 //  BOOTSTRAP
 // -----------------------------------------------------
 form.addEventListener("submit", findParking);
 
 window.addEventListener("DOMContentLoaded", () => {
-    const arrivalInput = document.getElementById("arrival");
-    if (arrivalInput) {
-        arrivalInput.value = new Date().toISOString().slice(0, 16);
-    }
+    // Wire up sort buttons
+    const sortBestBtn = document.getElementById("sortBest");
+    const sortDistanceBtn = document.getElementById("sortDistance");
+    const sortRatingBtn = document.getElementById("sortRating");
+    const sortCongestionBtn = document.getElementById("sortCongestion");
 
+    if (sortBestBtn) {
+        sortBestBtn.addEventListener("click", () => handleSortChange("best"));
+    }
+    if (sortDistanceBtn) {
+        sortDistanceBtn.addEventListener("click", () => handleSortChange("distance"));
+    }
+    if (sortRatingBtn) {
+        sortRatingBtn.addEventListener("click", () => handleSortChange("rating"));
+    }
+    if (sortCongestionBtn) {
+        sortCongestionBtn.addEventListener("click", () => handleSortChange("congestion"));
+    }
     if (locationStatus && !navigator.geolocation) {
         locationStatus.textContent = "Geolocation not supported in this browser.";
     }
