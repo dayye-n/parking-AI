@@ -1,0 +1,267 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Tech Stack | ParkSense</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Inter:wght@400;500&display=swap" rel="stylesheet" />
+    <link rel="stylesheet" href="style.css" />
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        .tech-stack-page {
+            position: relative;
+            z-index: 1;
+            min-height: 100vh;
+            padding: 2rem;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            background: var(--card);
+            border: 1px solid var(--border);
+            border-radius: 16px;
+            padding: 3rem;
+            backdrop-filter: blur(10px);
+        }
+
+        h1 {
+            font-family: 'Space Grotesk', sans-serif;
+            font-size: 2.5rem;
+            margin-bottom: 0.5rem;
+            color: var(--accent);
+        }
+
+        .subtitle {
+            color: var(--muted);
+            margin-bottom: 3rem;
+            font-size: 1.1rem;
+        }
+
+        .section {
+            margin-bottom: 3rem;
+        }
+
+        .section-title {
+            font-family: 'Space Grotesk', sans-serif;
+            font-size: 1.5rem;
+            color: var(--text);
+            margin-bottom: 1.5rem;
+            padding-bottom: 0.5rem;
+            border-bottom: 2px solid var(--accent);
+        }
+
+        .tech-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+            gap: 1.5rem;
+        }
+
+        .tech-card {
+            background: var(--card-solid);
+            border-radius: 12px;
+            padding: 1.5rem;
+            border: 1px solid var(--border);
+            transition: all 0.3s ease;
+        }
+
+        .tech-card:hover {
+            border-color: var(--accent);
+            transform: translateY(-4px);
+            box-shadow: 0 8px 20px rgba(102, 242, 168, 0.15);
+            background: rgba(102, 242, 168, 0.05);
+        }
+
+        .tech-name {
+            font-family: 'Space Grotesk', sans-serif;
+            font-size: 1.2rem;
+            font-weight: 600;
+            color: var(--accent);
+            margin-bottom: 0.5rem;
+        }
+
+        .tech-description {
+            color: var(--muted);
+            font-size: 0.95rem;
+            line-height: 1.6;
+        }
+
+        .tech-category {
+            display: inline-block;
+            background: linear-gradient(120deg, var(--accent), var(--accent-strong));
+            color: #041b11;
+            padding: 0.25rem 0.75rem;
+            border-radius: 20px;
+            font-size: 0.75rem;
+            font-weight: 600;
+            margin-bottom: 0.75rem;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .back-link {
+            display: inline-block;
+            margin-top: 2rem;
+            color: var(--accent);
+            text-decoration: none;
+            font-weight: 500;
+            transition: color 0.3s ease;
+        }
+
+        .back-link:hover {
+            color: var(--accent-strong);
+            text-decoration: underline;
+        }
+
+        .api-badge {
+            display: inline-block;
+            background: var(--success);
+            color: #041b11;
+            padding: 0.2rem 0.6rem;
+            border-radius: 12px;
+            font-size: 0.75rem;
+            font-weight: 600;
+            margin-left: 0.5rem;
+        }
+    </style>
+</head>
+<body>
+    <div class="bg-sheen"></div>
+    <div class="bg-sheen second"></div>
+    <div class="tech-stack-page">
+        <div class="container">
+        <h1>ParkSense Tech Stack</h1>
+        <p class="subtitle">Technologies powering the AI parking recommendation system</p>
+
+        <div class="section">
+            <h2 class="section-title">Backend</h2>
+            <div class="tech-grid">
+                <div class="tech-card">
+                    <span class="tech-category">Framework</span>
+                    <div class="tech-name">FastAPI</div>
+                    <div class="tech-description">Modern, fast Python web framework for building RESTful APIs with automatic OpenAPI documentation.</div>
+                </div>
+                <div class="tech-card">
+                    <span class="tech-category">Language</span>
+                    <div class="tech-name">Python 3.13</div>
+                    <div class="tech-description">High-level programming language used for backend logic, API endpoints, and data processing.</div>
+                </div>
+                <div class="tech-card">
+                    <span class="tech-category">Server</span>
+                    <div class="tech-name">Uvicorn</div>
+                    <div class="tech-description">Lightning-fast ASGI server implementation for running FastAPI applications.</div>
+                </div>
+                <div class="tech-card">
+                    <span class="tech-category">Vector Database</span>
+                    <div class="tech-name">Qdrant</div>
+                    <div class="tech-description">Vector similarity search engine for storing and querying parking zone embeddings with semantic search capabilities.</div>
+                </div>
+                <div class="tech-card">
+                    <span class="tech-category">Validation</span>
+                    <div class="tech-name">Pydantic</div>
+                    <div class="tech-description">Data validation library using Python type annotations for request/response models.</div>
+                </div>
+                <div class="tech-card">
+                    <span class="tech-category">HTTP Client</span>
+                    <div class="tech-name">Requests</div>
+                    <div class="tech-description">Python HTTP library for making API calls to Google Maps services (Geocoding, Places, Distance Matrix).</div>
+                </div>
+                <div class="tech-card">
+                    <span class="tech-category">Configuration</span>
+                    <div class="tech-name">python-dotenv</div>
+                    <div class="tech-description">Loads environment variables from .env files for secure API key management.</div>
+                </div>
+            </div>
+        </div>
+
+        <div class="section">
+            <h2 class="section-title">Frontend</h2>
+            <div class="tech-grid">
+                <div class="tech-card">
+                    <span class="tech-category">Markup</span>
+                    <div class="tech-name">HTML5</div>
+                    <div class="tech-description">Semantic markup for structuring the web application interface.</div>
+                </div>
+                <div class="tech-card">
+                    <span class="tech-category">Styling</span>
+                    <div class="tech-name">CSS3</div>
+                    <div class="tech-description">Modern styling with gradients, flexbox, and responsive design for a polished UI.</div>
+                </div>
+                <div class="tech-card">
+                    <span class="tech-category">Scripting</span>
+                    <div class="tech-name">JavaScript (ES6+)</div>
+                    <div class="tech-description">Client-side logic for user interactions, API calls, map rendering, and dynamic content updates.</div>
+                </div>
+            </div>
+        </div>
+
+        <div class="section">
+            <h2 class="section-title">Google Maps APIs</h2>
+            <div class="tech-grid">
+                <div class="tech-card">
+                    <span class="tech-category">Maps</span>
+                    <div class="tech-name">Maps JavaScript API</div>
+                    <div class="tech-description">Interactive map rendering with custom markers, info windows, and real-time location visualization.</div>
+                </div>
+                <div class="tech-card">
+                    <span class="tech-category">Places</span>
+                    <div class="tech-name">Places API</div>
+                    <div class="tech-description">Autocomplete suggestions and nearby parking search with place details and ratings.</div>
+                </div>
+                <div class="tech-card">
+                    <span class="tech-category">Geocoding</span>
+                    <div class="tech-name">Geocoding API</div>
+                    <div class="tech-description">Convert addresses and landmarks to coordinates for origin location resolution.</div>
+                </div>
+                <div class="tech-card">
+                    <span class="tech-category">Directions</span>
+                    <div class="tech-name">Directions API</div>
+                    <div class="tech-description">Calculate routes and travel times with traffic-aware routing from origin to parking lots.</div>
+                </div>
+                <div class="tech-card">
+                    <span class="tech-category">Distance</span>
+                    <div class="tech-name">Distance Matrix API</div>
+                    <div class="tech-description">Get real-time distance and duration calculations with traffic data for multiple destinations.</div>
+                </div>
+            </div>
+        </div>
+
+        <div class="section">
+            <h2 class="section-title">Features & Algorithms</h2>
+            <div class="tech-grid">
+                <div class="tech-card">
+                    <span class="tech-category">AI/ML</span>
+                    <div class="tech-name">Vector Similarity Search</div>
+                    <div class="tech-description">Qdrant-powered semantic search for finding parking lots based on multi-dimensional feature vectors (congestion, price, distance, amenities).</div>
+                </div>
+                <div class="tech-card">
+                    <span class="tech-category">Ranking</span>
+                    <div class="tech-name">Multi-Factor Scoring</div>
+                    <div class="tech-description">Weighted algorithm combining distance (40%), congestion (30%), price (20%), and rating (10%) for optimal recommendations.</div>
+                </div>
+                <div class="tech-card">
+                    <span class="tech-category">Geolocation</span>
+                    <div class="tech-name">Browser Geolocation API</div>
+                    <div class="tech-description">Native browser API for getting user's current location with high accuracy.</div>
+                </div>
+                <div class="tech-card">
+                    <span class="tech-category">CORS</span>
+                    <div class="tech-name">Cross-Origin Resource Sharing</div>
+                    <div class="tech-description">FastAPI CORS middleware enabling secure communication between frontend and backend.</div>
+                </div>
+            </div>
+        </div>
+
+        <a href="index.html" class="back-link">← Back to ParkSense</a>
+        </div>
+    </div>
+</body>
+</html>
+

@@ -1,0 +1,161 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>ParkSense | AI Parking Recommendations</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Inter:wght@400;500&display=swap" rel="stylesheet" />
+    <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+<div class="bg-sheen"></div>
+<div class="bg-sheen second"></div>
+<div class="page">
+    <header class="site-header">
+        <div class="logo">
+            ParkSense
+            <span class="logo__tagline">AI Parking Intelligence</span>
+        </div>
+        <nav>
+            <a href="#hero">Vision</a>
+            <a href="#commandCenter">AI Console</a>
+            <a href="#footer">Partners</a>
+        </nav>
+        <div class="header-actions">
+            <a href="tech-stack.html" target="_blank" rel="noopener noreferrer" style="text-decoration: none;">
+                <button class="ghost">View tech stack</button>
+            </a>
+        </div>
+    </header>
+
+    <section class="hero" id="hero">
+        <div class="hero__copy">
+            <p class="eyebrow">Urban mobility copilot</p>
+            <h1>ParkSense predicts the safest, smartest stall before you arrive.</h1>
+            <p class="subtitle">
+                Google Maps scans nearby curb and garage zones, Qdrant remembers multimodal congestion, imagery, and pricing signals,
+                and an LLM agent balances safety, walking distance, and cost so drivers stop circling and cities cut emissions.
+            </p>
+            <ul class="hero__stats">
+                <li>
+                    <h3>Google Maps API</h3>
+                    <p>Surfaces live curb and garage inventory, with driving + walking ETAs to every candidate zone.</p>
+                </li>
+                <li>
+                    <h3>Qdrant vector memory</h3>
+                    <p>Stores text, congestion traces, entrance imagery, and safety indicators for instant similarity search.</p>
+                </li>
+                <li>
+                    <h3>LLM preference agent</h3>
+                    <p>Understands driver intent, learns habits, and tunes recommendations for traffic, price, or comfort.</p>
+                </li>
+            </ul>
+        </div>
+    </section>
+
+    <main>
+        <section class="panel-grid" id="commandCenter">
+            <div class="panel search-card">
+                <div class="panel-header">
+                    <div>
+                        <p class="eyebrow">AI routing</p>
+                        <h2>Command center</h2>
+                    </div>
+                    <span class="tag">Live</span>
+                </div>
+                <form id="searchForm" class="search-form">
+                    <label>
+                        City
+                        <select id="city" required>
+                            <option value="Dubai">Dubai</option>
+                            <option value="Abu Dhabi">Abu Dhabi</option>
+                            <option value="Sharjah">Sharjah</option>
+                        </select>
+                    </label>
+                    <label>
+                        Duration
+                        <select id="duration">
+                            <option value="1">1 hr</option>
+                            <option value="2">2 hrs</option>
+                            <option value="4">4 hrs</option>
+                            <option value="8">Full day</option>
+                        </select>
+                    </label>
+                    <label>
+                        Vehicle
+                        <select id="vehicle">
+                            <option value="standard">Standard</option>
+                        </select>
+                    </label>
+                    <label class="origin-field">
+                        Origin for directions
+                        <div class="location-input">
+                            <input type="text" id="originDisplay" placeholder="Type a location (e.g., Dubai Festival City)" autocomplete="off" />
+                            <button type="button" class="ghost" id="useLocation">Use my location</button>
+                        </div>
+                        <span class="location-status" id="locationStatus">Share your location or type an address to unlock live travel times.</span>
+                        <input type="hidden" id="originLat" />
+                        <input type="hidden" id="originLng" />
+                    </label>
+                    <label class="switch">
+                        <input type="checkbox" id="preferCovered" checked />
+                        <span>Prefer covered parking</span>
+                    </label>
+                    <button type="submit" class="primary">Search availability</button>
+                </form>
+            </div>
+            <div class="panel map-panel">
+                <div class="map-header">
+                    <h3>Map</h3>
+                </div>
+                <div class="map" id="mapPreview">
+                    <div class="pulse-marker" style="top:35%;left:55%"></div>
+                    <div class="pulse-marker alt" style="top:60%;left:30%"></div>
+                    <div class="map-overlay" id="mapOverlay">
+                        <p id="mapOverlayLabel">Occupancy trend</p>
+                        <h4 id="mapOverlayHeadline">Down 8% in last 15 minutes</h4>
+                        <span id="mapOverlaySubline">Optimized routing reduced congestion near Dubai Mall</span>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <section class="panel results-panel" id="resultsSection">
+            <div class="panel-header">
+                <div>
+                    <p class="eyebrow">Adaptive matches</p>
+                    <h2>Available lots & directions</h2>
+                </div>
+                <div class="filter-chips">
+                    <button class="ghost" type="button" id="sortBest">Best overall</button>
+                    <button class="ghost" type="button" id="sortDistance">Sort by proximity</button>
+                    <button class="ghost" type="button" id="sortRating">Sort by rating</button>
+                    <button class="ghost" type="button" id="sortCongestion">Least crowded</button>
+                </div>
+            </div>
+            <div id="results" class="results__list">
+                <div class="empty-state">
+                    Run a search to see AI-ranked lots with one-tap directions.
+                </div>
+            </div>
+        </section>
+
+    </main>
+
+    <footer class="site-footer" id="footer">
+        <p>&copy; ParkSense - Built for hackathons &amp; real cities alike.</p>
+        <div class="footer-links">
+            <a href="#hero">Overview</a>
+            <a href="#commandCenter">Integrations</a>
+            <a href="#resultsSection">Use cases</a>
+        </div>
+    </footer>
+</div>
+<script>
+    window.API_BASE_URL = 'http://localhost:8000';
+</script>
+<script src="app.js"></script>
+</body>
+</html>
