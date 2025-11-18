@@ -614,6 +614,16 @@ def suggest_result_to_parking_lot(result: SuggestResult) -> ParkingLot:
 
 app = FastAPI()
 
+# Root and health routes - defined immediately after app creation
+@app.get("/")
+def root():
+    return {"status": "ok", "message": "parking-ai backend running"}
+
+
+@app.get("/health")
+def health():
+    return {"status": "ok"}
+
 # CORS – allow your static frontend to call the API
 app.add_middleware(
     CORSMiddleware,
@@ -633,15 +643,6 @@ def startup() -> None:
 # ---------------------------------------------------------
 # ENDPOINTS
 # ---------------------------------------------------------
-
-@app.get("/")
-def root():
-    return {"status": "ok", "message": "parking-ai backend running"}
-
-
-@app.get("/health")
-def health():
-    return {"status": "ok"}
 
 
 def apply_recommendation_scores(results: List[SuggestResult]) -> None:
