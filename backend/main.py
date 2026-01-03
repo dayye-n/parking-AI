@@ -1,15 +1,17 @@
 import json
 import os
-from datetime import datetime
+from datetime import datetime, timedelta
 from enum import Enum
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
 import requests
 from dotenv import load_dotenv
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Depends, status
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.security import OAuth2PasswordRequestForm
 from pydantic import BaseModel
+from sqlalchemy.orm import Session
 
 from qdrant_client import QdrantClient
 from qdrant_client.models import (
@@ -21,6 +23,20 @@ from qdrant_client.models import (
     MatchValue,
     PayloadSchemaType,
 )
+
+# Import new auth and database modules
+from database import get_db, engine, Base
+from models import User, ParkingSpot
+from schemas import (
+    UserCreate, UserResponse, Token,
+    ParkingSpotCreate, ParkingSpotUpdate, ParkingSpotResponse
+)
+from schemas.places import AutocompleteResponse, PlaceDetailsResponse
+from schemas.recommendations import RecommendationRequest, RecommendationsResponse, RecommendationResponse
+from auth import verify_password, get_password_hash, create_access_token
+from dependencies import get_current_user
+from services import google_maps
+from services.recommendations import get_parking_recommendations
 
 # ---------------------------------------------------------
 # ENV + QDRANT CONFIG
@@ -624,7 +640,7 @@ def root():
 def health():
     return {"status": "ok"}
 
-# CORS – allow your static frontend to call the API
+# CORS – allow your static frontend and mobile app to call the API
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],  # for local dev; tighten later if you want
@@ -635,9 +651,18 @@ app.add_middleware(
 
 @app.on_event("startup")
 def startup() -> None:
-    init_collection()
-    seed_data()
-    print("✓ Qdrant collection created and seeded.")
+    # Create database tables
+    Base.metadata.create_all(bind=engine)
+    print("✓ Database tables created.")
+    
+    # Initialize Qdrant collection (optional - don't crash if unavailable)
+    try:
+        init_collection()
+        seed_data()
+        print("✓ Qdrant collection created and seeded.")
+    except Exception as e:
+        print(f"⚠ Qdrant not available: {e}")
+        print("  Continuing without Qdrant features...")
 
 
 # ---------------------------------------------------------
@@ -781,9 +806,229 @@ def dispatch():
     ]
 
 
-@app.get("/config")
-def get_config():
-    """Return frontend configuration including Google Maps API key."""
-    return {
-        "google_maps_api_key": GOOGLE_MAPS_API_KEY or "",
-    }
+# /config endpoint removed - Google API key must never be sent to clients
+
+
+# ---------------------------------------------------------
+# PLACES ENDPOINTS (Public)
+# ---------------------------------------------------------
+
+@app.get("/places/autocomplete", response_model=AutocompleteResponse)
+def places_autocomplete_endpoint(
+    q: str,
+    city: Optional[str] = None,
+    session_token: Optional[str] = None
+):
+    """Get Google Places autocomplete suggestions."""
+    if not q:
+        return AutocompleteResponse(suggestions=[])
+    
+    try:
+        suggestions_data = google_maps.places_autocomplete(
+            query=q,
+            city=city,
+            session_token=session_token
+        )
+        return AutocompleteResponse(suggestions=suggestions_data)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
+
+
+@app.get("/places/details", response_model=PlaceDetailsResponse)
+def places_details_endpoint(place_id: str):
+    """Get Google Places details by place_id."""
+    if not place_id:
+        raise HTTPException(status_code=400, detail="place_id is required")
+    
+    try:
+        details = google_maps.places_details(place_id)
+        return PlaceDetailsResponse(**details)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
+
+
+# ---------------------------------------------------------
+# RECOMMENDATIONS ENDPOINT (Public)
+# ---------------------------------------------------------
+
+@app.post("/recommendations", response_model=RecommendationsResponse)
+def get_recommendations(request: RecommendationRequest):
+    """
+    Get parking recommendations based on origin and destination.
+    Public endpoint - no authentication required.
+    """
+    try:
+        recommendations, dest_name, dest_address = get_parking_recommendations(
+            origin_lat=request.origin_lat,
+            origin_lng=request.origin_lng,
+            destination_place_id=request.destination_place_id,
+            results=request.results,
+            radius_m=request.radius_m,
+            sort=request.sort
+        )
+        
+        return RecommendationsResponse(
+            recommendations=recommendations,
+            destination_name=dest_name,
+            destination_address=dest_address
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
+
+
+# ---------------------------------------------------------
+# AUTH ENDPOINTS
+# ---------------------------------------------------------
+
+@app.post("/auth/register", response_model=UserResponse, status_code=status.HTTP_201_CREATED)
+def register(user_data: UserCreate, db: Session = Depends(get_db)):
+    """Register a new user."""
+    # Check if user already exists
+    existing_user = db.query(User).filter(User.email == user_data.email).first()
+    if existing_user:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Email already registered"
+        )
+    
+    # Create new user
+    hashed_password = get_password_hash(user_data.password)
+    db_user = User(
+        email=user_data.email,
+        hashed_password=hashed_password,
+        full_name=user_data.full_name
+    )
+    db.add(db_user)
+    db.commit()
+    db.refresh(db_user)
+    return db_user
+
+
+@app.post("/auth/login", response_model=Token)
+def login(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get_db)):
+    """Login and get access token."""
+    user = db.query(User).filter(User.email == form_data.username).first()
+    if not user or not verify_password(form_data.password, user.hashed_password):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Incorrect email or password",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    
+    access_token = create_access_token(data={"sub": user.email})
+    return {"access_token": access_token, "token_type": "bearer"}
+
+
+@app.get("/auth/me", response_model=UserResponse)
+def get_current_user_info(current_user: User = Depends(get_current_user)):
+    """Get current user information."""
+    return current_user
+
+
+# ---------------------------------------------------------
+# PROTECTED PARKING SPOT ENDPOINTS
+# ---------------------------------------------------------
+
+@app.post("/parking-spots", response_model=ParkingSpotResponse, status_code=status.HTTP_201_CREATED)
+def create_parking_spot(
+    spot_data: ParkingSpotCreate,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Create a new parking spot for the current user."""
+    db_spot = ParkingSpot(
+        **spot_data.model_dump(),
+        user_id=current_user.id
+    )
+    db.add(db_spot)
+    db.commit()
+    db.refresh(db_spot)
+    return db_spot
+
+
+@app.get("/parking-spots", response_model=List[ParkingSpotResponse])
+def list_parking_spots(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+    skip: int = 0,
+    limit: int = 100
+):
+    """List all parking spots for the current user."""
+    spots = db.query(ParkingSpot).filter(
+        ParkingSpot.user_id == current_user.id
+    ).offset(skip).limit(limit).all()
+    return spots
+
+
+@app.get("/parking-spots/{spot_id}", response_model=ParkingSpotResponse)
+def get_parking_spot(
+    spot_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Get a specific parking spot by ID (only if owned by current user)."""
+    spot = db.query(ParkingSpot).filter(
+        ParkingSpot.id == spot_id,
+        ParkingSpot.user_id == current_user.id
+    ).first()
+    if not spot:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Parking spot not found"
+        )
+    return spot
+
+
+@app.put("/parking-spots/{spot_id}", response_model=ParkingSpotResponse)
+def update_parking_spot(
+    spot_id: int,
+    spot_data: ParkingSpotUpdate,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Update a parking spot (only if owned by current user)."""
+    spot = db.query(ParkingSpot).filter(
+        ParkingSpot.id == spot_id,
+        ParkingSpot.user_id == current_user.id
+    ).first()
+    if not spot:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Parking spot not found"
+        )
+    
+    update_data = spot_data.model_dump(exclude_unset=True)
+    for field, value in update_data.items():
+        setattr(spot, field, value)
+    
+    db.commit()
+    db.refresh(spot)
+    return spot
+
+
+@app.delete("/parking-spots/{spot_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_parking_spot(
+    spot_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Delete a parking spot (only if owned by current user)."""
+    spot = db.query(ParkingSpot).filter(
+        ParkingSpot.id == spot_id,
+        ParkingSpot.user_id == current_user.id
+    ).first()
+    if not spot:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Parking spot not found"
+        )
+    
+    db.delete(spot)
+    db.commit()
+    return None

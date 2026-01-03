@@ -1,0 +1,16 @@
+{
+  "expo": {
+    "name": "ParkSense",
+    "slug": "parksense-mobile",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "light",
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.parksense.mobile"
+    },
+    "android": {
+      "package": "com.parksense.mobile"
+    }
+  }
+}

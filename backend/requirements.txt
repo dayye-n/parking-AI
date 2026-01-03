@@ -3,3 +3,10 @@ uvicorn[standard]
 qdrant-client
 python-dotenv
 requests
+sqlalchemy>=2.0.0
+alembic>=1.13.0
+psycopg2-binary
+python-jose[cryptography]
+passlib[bcrypt]
+python-multipart
+email-validator
