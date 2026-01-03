@@ -310,6 +310,4 @@ Visit http://localhost:8000/docs to test all endpoints interactively.
 - Deploy backend to production (e.g., Railway, Render)
 - Build and publish mobile app to stores
 
-## License
 
-MIT
